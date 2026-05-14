@@ -297,81 +297,85 @@ function Index() {
             ))}
           </div>
 
-          {lang && (
-            <>
-              <div className="flex items-center justify-between px-2 mb-2">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  <Layers className="w-3.5 h-3.5" /> Segments
-                </div>
-                <button
-                  onClick={addSeg}
-                  className="text-muted-foreground hover:text-foreground"
-                  title="Add segment"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="space-y-0.5">
-                {lang.segments.map((s) => (
-                  <div key={s.id} className="group flex items-center">
-                    <button
-                      onClick={() => setActiveSeg(s.id)}
-                      className={cn(
-                        "flex-1 text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
-                        activeSeg === s.id
-                          ? "bg-primary/10 text-primary font-medium"
-                          : "hover:bg-sidebar-accent/50"
-                      )}
-                    >
-                      <span className="truncate">{s.name}</span>
-                      <span className="text-xs text-muted-foreground">{s.cards.length}</span>
-                    </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="p-1 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => renameSeg(s.id)}>
-                          <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => delSeg(s.id)} className="text-destructive">
-                          <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
         </div>
       </aside>
 
       {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 border-b border-border bg-card px-6 flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="text-xs text-muted-foreground">
-              {lang?.name ?? "—"} · {seg?.cards.length ?? 0} snippets
+        <header className="border-b border-border bg-card px-8 pt-8">
+          <div className="flex items-start justify-between gap-4 pb-6">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-primary uppercase tracking-[0.18em] mb-2">
+                {lang?.name ?? "—"}
+              </div>
+              <h1 className="text-4xl font-bold tracking-tight truncate">
+                {seg?.name ?? "Select a segment"}
+              </h1>
+              <p className="text-sm text-muted-foreground mt-2">
+                {seg?.cards.length ?? 0} snippet{(seg?.cards.length ?? 0) === 1 ? "" : "s"} in this segment
+              </p>
             </div>
-            <h1 className="text-lg font-semibold truncate">{seg?.name ?? "Select a segment"}</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search snippets..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 w-64 h-9"
-              />
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search snippets..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 w-64 h-9"
+                />
+              </div>
+              <Button onClick={addCard} disabled={!seg} size="sm" className="h-9">
+                <Plus className="w-4 h-4 mr-1" /> New snippet
+              </Button>
             </div>
-            <Button onClick={addCard} disabled={!seg} size="sm" className="h-9">
-              <Plus className="w-4 h-4 mr-1" /> New snippet
-            </Button>
           </div>
+
+          {lang && (
+            <div className="flex items-center gap-1 overflow-x-auto -mb-px">
+              {lang.segments.map((s) => (
+                <div key={s.id} className="group relative flex items-center">
+                  <button
+                    onClick={() => setActiveSeg(s.id)}
+                    className={cn(
+                      "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2",
+                      activeSeg === s.id
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {s.name}
+                    <span className={cn(
+                      "text-xs rounded-full px-1.5 py-0.5 tabular-nums",
+                      activeSeg === s.id ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                    )}>{s.cards.length}</span>
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="p-1 mr-1 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity">
+                        <MoreHorizontal className="w-3.5 h-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => renameSeg(s.id)}>
+                        <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => delSeg(s.id)} className="text-destructive">
+                        <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ))}
+              <button
+                onClick={addSeg}
+                className="ml-1 mb-1 p-2 text-muted-foreground hover:text-foreground rounded-md hover:bg-muted transition-colors"
+                title="Add segment"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </header>
 
         <div className="flex-1 overflow-auto p-6 bg-background">

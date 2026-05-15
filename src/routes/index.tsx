@@ -3,11 +3,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus, Pencil, Trash2, Save, X, Code2, ExternalLink,
   Languages, Layers, FileCode, Search, MoreHorizontal,
+  Smartphone, Monitor, GitCompare, Upload, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -17,16 +19,16 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Card = { id: string; name: string; html: string; width: number };
+type Card = { id: string; name: string; html: string; width: number; height: number };
 type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
-const STORAGE_KEY = "html-snippet-manager-v2";
+const STORAGE_KEY = "html-snippet-manager-v3";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const seed = (): Language[] => {
   const mkCards = (names: string[]): Card[] =>
-    names.map((n) => ({ id: uid(), name: n, html: "", width: 380 }));
+    names.map((n) => ({ id: uid(), name: n, html: "", width: 380, height: 320 }));
   const mkSegs = (): Segment[] => [
     { id: uid(), name: "C-Level", cards: mkCards(["Intro", "Follow-up 1", "Follow-up 2", "Follow-up 3", "Follow-up 4", "Follow-up 5"]) },
     { id: uid(), name: "HR", cards: mkCards(["Intro", "Follow-up"]) },
@@ -45,6 +47,8 @@ type PromptState = {
   onConfirm: (val: string) => void;
 } | null;
 
+type DevicePreview = { html: string; name: string; device: "mobile" | "desktop" } | null;
+
 function Index() {
   const [langs, setLangs] = useState<Language[]>([]);
   const [activeLang, setActiveLang] = useState<string>("");
@@ -53,12 +57,21 @@ function Index() {
   const [prompt, setPrompt] = useState<PromptState>(null);
   const [confirmDel, setConfirmDel] = useState<{ msg: string; onYes: () => void } | null>(null);
   const [search, setSearch] = useState("");
+  const [devicePreview, setDevicePreview] = useState<DevicePreview>(null);
+  const [comparePicker, setComparePicker] = useState(false);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [compareView, setCompareView] = useState<string[] | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const loaded = useRef(false);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       const data: Language[] = raw ? JSON.parse(raw) : seed();
+      // migrate: ensure height exists
+      data.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
+        if (typeof c.height !== "number") c.height = 320;
+      })));
       setLangs(data);
       setActiveLang(data[0]?.id ?? "");
       setActiveSeg(data[0]?.segments[0]?.id ?? "");
@@ -77,6 +90,15 @@ function Index() {
 
   const lang = useMemo(() => langs.find((l) => l.id === activeLang), [langs, activeLang]);
   const seg = useMemo(() => lang?.segments.find((s) => s.id === activeSeg), [lang, activeSeg]);
+
+  // Flat index of all snippets for compare lookup
+  const allSnippets = useMemo(() => {
+    const out: { id: string; name: string; html: string; lang: string; seg: string }[] = [];
+    langs.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
+      out.push({ id: c.id, name: c.name, html: c.html, lang: l.name, seg: s.name });
+    })));
+    return out;
+  }, [langs]);
 
   const update = (fn: (d: Language[]) => Language[]) => setLangs((d) => fn(structuredClone(d)));
 
@@ -173,7 +195,7 @@ function Index() {
         update((d) => {
           const L = d.find((l) => l.id === lang.id)!;
           const S = L.segments.find((s) => s.id === seg.id)!;
-          S.cards.push({ id: uid(), name, html: "", width: 380 });
+          S.cards.push({ id: uid(), name, html: "", width: 380, height: 320 });
           return d;
         }),
     });
@@ -219,6 +241,21 @@ function Index() {
     }
   };
 
+  const handleDropFile = async (file: File) => {
+    if (!editor) return;
+    const text = await file.text();
+    setEditor({ ...editor, html: text });
+  };
+
+  const handlePickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f && editor) {
+      const text = await f.text();
+      setEditor({ ...editor, html: text });
+    }
+    e.target.value = "";
+  };
+
   const filteredCards = useMemo(
     () =>
       seg?.cards.filter((c) => c.name.toLowerCase().includes(search.toLowerCase())) ?? [],
@@ -229,6 +266,14 @@ function Index() {
     (acc, l) => acc + l.segments.reduce((a, s) => a + s.cards.length, 0),
     0
   );
+
+  const toggleCompare = (id: string) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 4) return prev;
+      return [...prev, id];
+    });
+  };
 
   return (
     <div className="flex h-screen bg-background text-foreground">
@@ -296,7 +341,6 @@ function Index() {
               </div>
             ))}
           </div>
-
         </div>
       </aside>
 
@@ -322,9 +366,17 @@ function Index() {
                   placeholder="Search snippets..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 w-64 h-9"
+                  className="pl-9 w-56 h-9"
                 />
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={() => { setCompareIds([]); setComparePicker(true); }}
+              >
+                <GitCompare className="w-4 h-4 mr-1" /> Compare
+              </Button>
               <Button onClick={addCard} disabled={!seg} size="sm" className="h-9">
                 <Plus className="w-4 h-4 mr-1" /> New snippet
               </Button>
@@ -395,10 +447,10 @@ function Index() {
                   className="group rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden"
                   style={{ width: c.width }}
                 >
-                  <div className="flex items-center justify-between px-4 h-11 border-b border-border">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-2 h-2 rounded-full bg-primary/70" />
-                      <h3 className="text-sm font-medium truncate">{c.name}</h3>
+                      <div className="w-2 h-2 rounded-full bg-primary/70 shrink-0" />
+                      <h3 className="text-lg font-semibold truncate tracking-tight">{c.name}</h3>
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -417,7 +469,7 @@ function Index() {
                     </DropdownMenu>
                   </div>
 
-                  <div className="relative bg-muted/30 h-48 overflow-hidden">
+                  <div className="relative bg-muted/30 overflow-hidden" style={{ height: c.height }}>
                     {c.html ? (
                       <iframe
                         srcDoc={c.html}
@@ -432,7 +484,7 @@ function Index() {
                     )}
                   </div>
 
-                  <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-2">
+                  <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-2 flex-wrap">
                     <Button
                       variant="secondary"
                       size="sm"
@@ -441,27 +493,62 @@ function Index() {
                     >
                       <Code2 className="w-3.5 h-3.5 mr-1" /> Edit
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8"
-                      onClick={() => openInBrowser(c.html)}
-                    >
-                      <ExternalLink className="w-3.5 h-3.5 mr-1" /> Preview
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2"
+                        title="Mobile preview"
+                        onClick={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2"
+                        title="Desktop preview"
+                        onClick={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
+                      >
+                        <Monitor className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2"
+                        title="Open in new tab"
+                        onClick={() => openInBrowser(c.html)}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </div>
 
-                  <div className="px-4 pb-3 flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="shrink-0">Width</span>
-                    <Slider
-                      value={[c.width]}
-                      min={280}
-                      max={780}
-                      step={10}
-                      onValueChange={(v) => updateCard(c.id, { width: v[0] })}
-                      className="flex-1"
-                    />
-                    <span className="tabular-nums w-10 text-right">{c.width}px</span>
+                  <div className="px-4 pb-3 space-y-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-3">
+                      <span className="shrink-0 w-12">Width</span>
+                      <Slider
+                        value={[c.width]}
+                        min={280}
+                        max={780}
+                        step={10}
+                        onValueChange={(v) => updateCard(c.id, { width: v[0] })}
+                        className="flex-1"
+                      />
+                      <span className="tabular-nums w-12 text-right">{c.width}px</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="shrink-0 w-12">Height</span>
+                      <Slider
+                        value={[c.height]}
+                        min={160}
+                        max={720}
+                        step={10}
+                        onValueChange={(v) => updateCard(c.id, { height: v[0] })}
+                        className="flex-1"
+                      />
+                      <span className="tabular-nums w-12 text-right">{c.height}px</span>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -473,16 +560,39 @@ function Index() {
       {/* Editor */}
       <Dialog open={!!editor} onOpenChange={(o) => !o && setEditor(null)}>
         <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-5 py-4 border-b border-border">
+          <DialogHeader className="px-5 py-4 border-b border-border flex-row items-center justify-between space-y-0">
             <DialogTitle>Edit HTML — {editor?.name}</DialogTitle>
+            <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary cursor-pointer hover:underline mr-6">
+              <Upload className="w-3.5 h-3.5" /> Upload HTML file
+              <input type="file" accept=".html,.htm,text/html" className="hidden" onChange={handlePickFile} />
+            </label>
           </DialogHeader>
-          <textarea
-            value={editor?.html ?? ""}
-            onChange={(e) => editor && setEditor({ ...editor, html: e.target.value })}
-            spellCheck={false}
-            placeholder="<!doctype html>&#10;<html>&#10;  <body>...</body>&#10;</html>"
-            className="flex-1 p-5 font-mono text-sm bg-muted/40 resize-none outline-none border-0"
-          />
+          <div
+            className="flex-1 relative"
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) handleDropFile(f);
+            }}
+          >
+            <textarea
+              value={editor?.html ?? ""}
+              onChange={(e) => editor && setEditor({ ...editor, html: e.target.value })}
+              spellCheck={false}
+              placeholder="<!doctype html>&#10;<html>&#10;  <body>...</body>&#10;</html>&#10;&#10;Tip: drop an .html file here to import."
+              className="w-full h-full p-5 font-mono text-sm bg-muted/40 resize-none outline-none border-0"
+            />
+            {dragOver && (
+              <div className="absolute inset-0 bg-primary/10 border-2 border-dashed border-primary grid place-items-center pointer-events-none">
+                <div className="text-sm font-medium text-primary flex items-center gap-2">
+                  <Upload className="w-4 h-4" /> Drop HTML file to import
+                </div>
+              </div>
+            )}
+          </div>
           <DialogFooter className="px-5 py-3 border-t border-border">
             <Button variant="ghost" onClick={() => setEditor(null)}>
               <X className="w-4 h-4 mr-1" /> Cancel
@@ -496,6 +606,158 @@ function Index() {
               <Save className="w-4 h-4 mr-1" /> Save
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Device preview */}
+      <Dialog open={!!devicePreview} onOpenChange={(o) => !o && setDevicePreview(null)}>
+        <DialogContent className="max-w-[min(95vw,1280px)] h-[88vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-5 py-4 border-b border-border flex-row items-center justify-between space-y-0">
+            <DialogTitle className="flex items-center gap-2">
+              {devicePreview?.device === "mobile" ? <Smartphone className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+              {devicePreview?.name} — {devicePreview?.device === "mobile" ? "Mobile (375×812)" : "Desktop (1280×800)"}
+            </DialogTitle>
+            <div className="flex items-center gap-1 mr-6">
+              <Button
+                variant={devicePreview?.device === "mobile" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-8"
+                onClick={() => devicePreview && setDevicePreview({ ...devicePreview, device: "mobile" })}
+              >
+                <Smartphone className="w-3.5 h-3.5 mr-1" /> Mobile
+              </Button>
+              <Button
+                variant={devicePreview?.device === "desktop" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-8"
+                onClick={() => devicePreview && setDevicePreview({ ...devicePreview, device: "desktop" })}
+              >
+                <Monitor className="w-3.5 h-3.5 mr-1" /> Desktop
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto bg-muted/30 grid place-items-center p-6">
+            {devicePreview && (
+              <div
+                className="bg-white rounded-lg shadow-lg overflow-hidden border border-border"
+                style={{
+                  width: devicePreview.device === "mobile" ? 375 : 1280,
+                  height: devicePreview.device === "mobile" ? 812 : 800,
+                  maxWidth: "100%",
+                }}
+              >
+                <iframe
+                  srcDoc={devicePreview.html || "<p style='font-family:sans-serif;color:#666;padding:24px'>Empty snippet</p>"}
+                  className="w-full h-full border-0"
+                  sandbox=""
+                  title={devicePreview.name}
+                />
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compare picker */}
+      <Dialog open={comparePicker} onOpenChange={(o) => { if (!o) setComparePicker(false); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Compare snippets</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Select 2 to 4 snippets to view side by side.
+            <span className="ml-2 font-medium text-foreground">{compareIds.length} selected</span>
+          </p>
+          <div className="flex-1 overflow-auto -mx-6 px-6 space-y-4">
+            {langs.map(l => (
+              <div key={l.id}>
+                <div className="text-xs font-semibold text-primary uppercase tracking-wider mb-1">{l.name}</div>
+                {l.segments.map(s => (
+                  <div key={s.id} className="mb-3">
+                    <div className="text-xs text-muted-foreground mb-1 ml-1">{s.name}</div>
+                    <div className="space-y-1">
+                      {s.cards.length === 0 && (
+                        <div className="text-xs text-muted-foreground italic ml-1">No snippets</div>
+                      )}
+                      {s.cards.map(c => {
+                        const checked = compareIds.includes(c.id);
+                        const disabled = !checked && compareIds.length >= 4;
+                        return (
+                          <label
+                            key={c.id}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 rounded-md border text-sm cursor-pointer transition-colors",
+                              checked ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+                              disabled && "opacity-50 cursor-not-allowed"
+                            )}
+                          >
+                            <Checkbox
+                              checked={checked}
+                              disabled={disabled}
+                              onCheckedChange={() => toggleCompare(c.id)}
+                            />
+                            <span className="flex-1 truncate">{c.name}</span>
+                            {!c.html && <span className="text-xs text-muted-foreground">(empty)</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setComparePicker(false)}>Cancel</Button>
+            <Button
+              disabled={compareIds.length < 2}
+              onClick={() => {
+                setCompareView(compareIds);
+                setComparePicker(false);
+              }}
+            >
+              <Check className="w-4 h-4 mr-1" /> Compare ({compareIds.length})
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compare view */}
+      <Dialog open={!!compareView} onOpenChange={(o) => !o && setCompareView(null)}>
+        <DialogContent className="max-w-[98vw] h-[92vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-5 py-4 border-b border-border">
+            <DialogTitle className="flex items-center gap-2">
+              <GitCompare className="w-4 h-4" /> Comparing {compareView?.length ?? 0} snippets
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto bg-muted/30 p-4">
+            <div
+              className="grid gap-4 h-full"
+              style={{ gridTemplateColumns: `repeat(${compareView?.length ?? 1}, minmax(0, 1fr))` }}
+            >
+              {compareView?.map(id => {
+                const s = allSnippets.find(x => x.id === id);
+                if (!s) return null;
+                return (
+                  <div key={id} className="flex flex-col bg-card rounded-lg border border-border overflow-hidden min-w-0">
+                    <div className="px-4 py-3 border-b border-border bg-card">
+                      <div className="text-[10px] font-semibold text-primary uppercase tracking-wider">
+                        {s.lang} · {s.seg}
+                      </div>
+                      <div className="text-base font-semibold truncate">{s.name}</div>
+                    </div>
+                    <div className="flex-1 bg-white">
+                      {s.html ? (
+                        <iframe srcDoc={s.html} className="w-full h-full border-0" sandbox="" title={s.name} />
+                      ) : (
+                        <div className="h-full grid place-items-center text-xs text-muted-foreground">Empty snippet</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -280,12 +280,10 @@ function Index() {
       {/* Sidebar */}
       <aside className="w-64 border-r border-border bg-sidebar flex flex-col">
         <div className="px-5 py-5 border-b border-border">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary text-primary-foreground grid place-items-center">
-              <FileCode className="w-4 h-4" />
-            </div>
+          <div className="flex items-center gap-2.5">
+            <img src="/favicon.png" alt="FlowNote logo" className="w-9 h-9 rounded-lg object-contain bg-primary/10 p-1" />
             <div>
-              <div className="text-sm font-semibold leading-tight">Snippet Studio</div>
+              <div className="text-base font-bold leading-tight tracking-tight">FlowNote</div>
               <div className="text-xs text-muted-foreground">{totalSnippets} snippets</div>
             </div>
           </div>

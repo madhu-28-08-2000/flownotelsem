@@ -14,6 +14,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import flownoteLogo from "@/assets/flownote-logo.svg";
 
 export const Route = createFileRoute("/")({
   component: Index,

@@ -14,6 +14,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import flownoteLogo from "@/assets/flownote-logo.svg";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -281,11 +282,8 @@ function Index() {
       <aside className="w-64 border-r border-border bg-sidebar flex flex-col">
         <div className="px-5 py-5 border-b border-border">
           <div className="flex items-center gap-2.5">
-            <img src="/favicon.png" alt="FlowNote logo" className="w-9 h-9 rounded-lg object-contain bg-primary/10 p-1" />
-            <div>
-              <div className="text-base font-bold leading-tight tracking-tight">FlowNote</div>
-              <div className="text-xs text-muted-foreground">{totalSnippets} snippets</div>
-            </div>
+            <img src={flownoteLogo} alt="FlowNote" className="h-8 w-auto" />
+            <div className="text-xs text-muted-foreground ml-auto">{totalSnippets} snippets</div>
           </div>
         </div>
 

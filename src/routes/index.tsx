@@ -511,6 +511,20 @@ function Index() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        className="h-8 px-2 relative"
+                        title="Notes"
+                        onClick={() => setNotesCardId(c.id)}
+                      >
+                        <StickyNote className="w-3.5 h-3.5" />
+                        {c.notes.length > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] leading-none rounded-full w-4 h-4 grid place-items-center font-semibold">
+                            {c.notes.length}
+                          </span>
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         className="h-8 px-2"
                         title="Open in new tab"
                         onClick={() => openInBrowser(c.html)}

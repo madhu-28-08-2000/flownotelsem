@@ -196,7 +196,7 @@ function Index() {
         update((d) => {
           const L = d.find((l) => l.id === lang.id)!;
           const S = L.segments.find((s) => s.id === seg.id)!;
-          S.cards.push({ id: uid(), name, html: "", width: 380, height: 270 });
+          S.cards.push({ id: uid(), name, html: "", width: 380, height: 270, notes: [] });
           return d;
         }),
     });

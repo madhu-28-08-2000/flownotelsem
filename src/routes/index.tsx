@@ -20,23 +20,22 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Card = { id: string; name: string; html: string; width: number; height: number };
+type Note = { id: string; text: string; createdAt: number };
+type Card = { id: string; name: string; html: string; width: number; height: number; notes: Note[] };
 type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
-const STORAGE_KEY = "html-snippet-manager-v3";
+const STORAGE_KEY = "html-snippet-manager-v4";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const seed = (): Language[] => {
   const mkCards = (names: string[]): Card[] =>
-    names.map((n) => ({ id: uid(), name: n, html: "", width: 380, height: 270 }));
+    names.map((n) => ({ id: uid(), name: n, html: "", width: 380, height: 270, notes: [] }));
   const mkSegs = (): Segment[] => [
-    { id: uid(), name: "C-Level", cards: mkCards(["Intro", "Follow-up 1", "Follow-up 2", "Follow-up 3", "Follow-up 4", "Follow-up 5"]) },
     { id: uid(), name: "HR", cards: mkCards(["Intro", "Follow-up"]) },
     { id: uid(), name: "VP", cards: mkCards(["Intro", "Follow-up"]) },
   ];
   return [
-    { id: uid(), name: "German", segments: mkSegs() },
     { id: uid(), name: "English", segments: mkSegs() },
   ];
 };

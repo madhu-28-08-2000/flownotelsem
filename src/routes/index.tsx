@@ -280,11 +280,9 @@ function Index() {
     <div className="flex h-screen bg-background text-foreground">
       {/* Sidebar */}
       <aside className="w-64 border-r border-border bg-sidebar flex flex-col">
-        <div className="px-5 py-5 border-b border-border">
-          <div className="flex items-center gap-2.5">
-            <img src={flownoteLogo} alt="FlowNote" className="h-8 w-auto" />
-            <div className="text-xs text-muted-foreground ml-auto">{totalSnippets} snippets</div>
-          </div>
+        <div className="px-4 py-4 border-b border-border">
+          <img src={flownoteLogo} alt="FlowNote" className="block w-[calc(100%-1rem)] mx-auto h-auto" />
+          <div className="mt-2 text-xs text-muted-foreground text-right">{totalSnippets} snippets</div>
         </div>
 
         <div className="px-3 py-3 flex-1 overflow-y-auto">

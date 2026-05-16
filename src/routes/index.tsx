@@ -77,12 +77,34 @@ function Index() {
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareView, setCompareView] = useState<string[] | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const loaded = useRef(false);
+  const clientIdRef = useRef<string>("");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Initial load: try cloud first, fall back to local cache, then seed.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const data: Language[] = raw ? JSON.parse(raw) : seed();
+    const clientId = getClientId();
+    clientIdRef.current = clientId;
+    (async () => {
+      let data: Language[] | null = null;
+      try {
+        const { data: row } = await supabase
+          .from("workspaces")
+          .select("data")
+          .eq("client_id", clientId)
+          .maybeSingle();
+        if (row?.data && Array.isArray(row.data)) data = row.data as unknown as Language[];
+      } catch (e) {
+        console.warn("Cloud load failed, falling back to local:", e);
+      }
+      if (!data) {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) data = JSON.parse(raw) as Language[];
+        } catch { /* ignore */ }
+      }
+      if (!data || data.length === 0) data = seed();
       // migrate: ensure height + notes exist
       data.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
         if (typeof c.height !== "number") c.height = 270;
@@ -91,17 +113,24 @@ function Index() {
       setLangs(data);
       setActiveLang(data[0]?.id ?? "");
       setActiveSeg(data[0]?.segments[0]?.id ?? "");
-    } catch {
-      const data = seed();
-      setLangs(data);
-      setActiveLang(data[0]?.id ?? "");
-      setActiveSeg(data[0]?.segments[0]?.id ?? "");
-    }
-    loaded.current = true;
+      loaded.current = true;
+    })();
   }, []);
 
+  // Persist: local cache instantly + debounced cloud upsert.
   useEffect(() => {
-    if (loaded.current) localStorage.setItem(STORAGE_KEY, JSON.stringify(langs));
+    if (!loaded.current) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(langs)); } catch { /* ignore */ }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await supabase
+          .from("workspaces")
+          .upsert({ client_id: clientIdRef.current, data: langs as unknown as never, updated_at: new Date().toISOString() });
+      } catch (e) {
+        console.warn("Cloud save failed:", e);
+      }
+    }, 600);
   }, [langs]);
 
   const lang = useMemo(() => langs.find((l) => l.id === activeLang), [langs, activeLang]);

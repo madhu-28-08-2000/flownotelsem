@@ -771,6 +771,29 @@ function Index() {
         </DialogContent>
       </Dialog>
 
+      {/* Notes */}
+      <NotesDialog
+        card={notesCardId ? seg?.cards.find(c => c.id === notesCardId) ?? null : null}
+        newNote={newNote}
+        setNewNote={setNewNote}
+        onClose={() => { setNotesCardId(null); setNewNote(""); }}
+        onAdd={() => {
+          const text = newNote.trim();
+          if (!text || !notesCardId) return;
+          const card = seg?.cards.find(c => c.id === notesCardId);
+          if (!card) return;
+          const next: Note[] = [...card.notes, { id: uid(), text, createdAt: Date.now() }];
+          updateCard(notesCardId, { notes: next });
+          setNewNote("");
+        }}
+        onDelete={(noteId) => {
+          if (!notesCardId) return;
+          const card = seg?.cards.find(c => c.id === notesCardId);
+          if (!card) return;
+          updateCard(notesCardId, { notes: card.notes.filter(n => n.id !== noteId) });
+        }}
+      />
+
       {/* Prompt */}
       <PromptDialog state={prompt} onClose={() => setPrompt(null)} />
 

@@ -28,6 +28,17 @@ type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
 const STORAGE_KEY = "html-snippet-manager-v4";
+const CLIENT_ID_KEY = "flownote-client-id";
+
+function getClientId(): string {
+  if (typeof window === "undefined") return "ssr";
+  let id = localStorage.getItem(CLIENT_ID_KEY);
+  if (!id) {
+    id = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36));
+    localStorage.setItem(CLIENT_ID_KEY, id);
+  }
+  return id;
+}
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const seed = (): Language[] => {

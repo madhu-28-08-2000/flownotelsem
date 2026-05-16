@@ -3,17 +3,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus, Pencil, Trash2, Save, X, Code2, ExternalLink,
   Languages, Layers, FileCode, Search, MoreHorizontal,
-  Smartphone, Monitor, GitCompare, Upload, Check, StickyNote,
+  Smartphone, Monitor, GitCompare, Upload, Check, StickyNote, Menu,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 import flownoteLogo from "@/assets/flownote-logo.svg";
 
 export const Route = createFileRoute("/")({
@@ -26,6 +28,17 @@ type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
 const STORAGE_KEY = "html-snippet-manager-v4";
+const CLIENT_ID_KEY = "flownote-client-id";
+
+function getClientId(): string {
+  if (typeof window === "undefined") return "ssr";
+  let id = localStorage.getItem(CLIENT_ID_KEY);
+  if (!id) {
+    id = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36));
+    localStorage.setItem(CLIENT_ID_KEY, id);
+  }
+  return id;
+}
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const seed = (): Language[] => {
@@ -64,12 +77,34 @@ function Index() {
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareView, setCompareView] = useState<string[] | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const loaded = useRef(false);
+  const clientIdRef = useRef<string>("");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Initial load: try cloud first, fall back to local cache, then seed.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const data: Language[] = raw ? JSON.parse(raw) : seed();
+    const clientId = getClientId();
+    clientIdRef.current = clientId;
+    (async () => {
+      let data: Language[] | null = null;
+      try {
+        const { data: row } = await supabase
+          .from("workspaces")
+          .select("data")
+          .eq("client_id", clientId)
+          .maybeSingle();
+        if (row?.data && Array.isArray(row.data)) data = row.data as unknown as Language[];
+      } catch (e) {
+        console.warn("Cloud load failed, falling back to local:", e);
+      }
+      if (!data) {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) data = JSON.parse(raw) as Language[];
+        } catch { /* ignore */ }
+      }
+      if (!data || data.length === 0) data = seed();
       // migrate: ensure height + notes exist
       data.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
         if (typeof c.height !== "number") c.height = 270;
@@ -78,17 +113,24 @@ function Index() {
       setLangs(data);
       setActiveLang(data[0]?.id ?? "");
       setActiveSeg(data[0]?.segments[0]?.id ?? "");
-    } catch {
-      const data = seed();
-      setLangs(data);
-      setActiveLang(data[0]?.id ?? "");
-      setActiveSeg(data[0]?.segments[0]?.id ?? "");
-    }
-    loaded.current = true;
+      loaded.current = true;
+    })();
   }, []);
 
+  // Persist: local cache instantly + debounced cloud upsert.
   useEffect(() => {
-    if (loaded.current) localStorage.setItem(STORAGE_KEY, JSON.stringify(langs));
+    if (!loaded.current) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(langs)); } catch { /* ignore */ }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await supabase
+          .from("workspaces")
+          .upsert({ client_id: clientIdRef.current, data: langs as unknown as never, updated_at: new Date().toISOString() });
+      } catch (e) {
+        console.warn("Cloud save failed:", e);
+      }
+    }, 600);
   }, [langs]);
 
   const lang = useMemo(() => langs.find((l) => l.id === activeLang), [langs, activeLang]);
@@ -278,91 +320,114 @@ function Index() {
     });
   };
 
+  const sidebarInner = (
+    <>
+      <div className="px-4 py-4 border-b border-border">
+        <img src={flownoteLogo} alt="FlowNote" className="block w-[calc(100%-1rem)] mx-auto h-auto" />
+        <div className="mt-2 text-xs text-muted-foreground text-right">{totalSnippets} snippets</div>
+      </div>
+
+      <div className="px-3 py-3 flex-1 overflow-y-auto">
+        <div className="flex items-center justify-between px-2 mb-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <Languages className="w-3.5 h-3.5" /> Languages
+          </div>
+          <button
+            onClick={addLang}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title="Add language"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="space-y-0.5 mb-5">
+          {langs.map((l) => (
+            <div key={l.id} className="group flex items-center">
+              <button
+                onClick={() => {
+                  setActiveLang(l.id);
+                  setActiveSeg(l.segments[0]?.id ?? "");
+                  setMobileNavOpen(false);
+                }}
+                className={cn(
+                  "flex-1 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-between",
+                  activeLang === l.id
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+                )}
+              >
+                <span className="truncate">{l.name}</span>
+                <span className="text-xs text-muted-foreground">{l.segments.length}</span>
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="p-1 opacity-60 md:opacity-0 md:group-hover:opacity-100 text-muted-foreground hover:text-foreground">
+                    <MoreHorizontal className="w-4 h-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => renameLang(l.id)}>
+                    <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => delLang(l.id)} className="text-destructive">
+                    <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div className="flex h-screen bg-background text-foreground">
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-border bg-sidebar flex flex-col">
-        <div className="px-4 py-4 border-b border-border">
-          <img src={flownoteLogo} alt="FlowNote" className="block w-[calc(100%-1rem)] mx-auto h-auto" />
-          <div className="mt-2 text-xs text-muted-foreground text-right">{totalSnippets} snippets</div>
-        </div>
-
-        <div className="px-3 py-3 flex-1 overflow-y-auto">
-          <div className="flex items-center justify-between px-2 mb-2">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              <Languages className="w-3.5 h-3.5" /> Languages
-            </div>
-            <button
-              onClick={addLang}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="Add language"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="space-y-0.5 mb-5">
-            {langs.map((l) => (
-              <div key={l.id} className="group flex items-center">
-                <button
-                  onClick={() => {
-                    setActiveLang(l.id);
-                    setActiveSeg(l.segments[0]?.id ?? "");
-                  }}
-                  className={cn(
-                    "flex-1 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-between",
-                    activeLang === l.id
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-                  )}
-                >
-                  <span className="truncate">{l.name}</span>
-                  <span className="text-xs text-muted-foreground">{l.segments.length}</span>
-                </button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="p-1 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground">
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => renameLang(l.id)}>
-                      <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => delLang(l.id)} className="text-destructive">
-                      <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* Sidebar (desktop) */}
+      <aside className="hidden md:flex w-64 border-r border-border bg-sidebar flex-col">
+        {sidebarInner}
       </aside>
 
+      {/* Sidebar (mobile) */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="p-0 w-72 bg-sidebar flex flex-col">
+          {sidebarInner}
+        </SheetContent>
+      </Sheet>
+
       {/* Main */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="border-b border-border bg-card px-8 pt-8">
-          <div className="flex items-start justify-between gap-4 pb-6">
-            <div className="min-w-0">
-              <div className="text-xs font-semibold text-primary uppercase tracking-[0.18em] mb-2">
-                {lang?.name ?? "—"}
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <header className="border-b border-border bg-card px-4 sm:px-8 pt-4 sm:pt-8">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 pb-4 sm:pb-6">
+            <div className="min-w-0 flex items-start gap-2">
+              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="sm" className="md:hidden h-9 w-9 p-0 -ml-2 mt-1 shrink-0">
+                    <Menu className="w-5 h-5" />
+                  </Button>
+                </SheetTrigger>
+              </Sheet>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-primary uppercase tracking-[0.18em] mb-1 sm:mb-2">
+                  {lang?.name ?? "—"}
+                </div>
+                <h1 className="text-2xl sm:text-4xl font-bold tracking-tight truncate">
+                  {seg?.name ?? "Select a segment"}
+                </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2">
+                  {seg?.cards.length ?? 0} snippet{(seg?.cards.length ?? 0) === 1 ? "" : "s"} in this segment
+                </p>
               </div>
-              <h1 className="text-4xl font-bold tracking-tight truncate">
-                {seg?.name ?? "Select a segment"}
-              </h1>
-              <p className="text-sm text-muted-foreground mt-2">
-                {seg?.cards.length ?? 0} snippet{(seg?.cards.length ?? 0) === 1 ? "" : "s"} in this segment
-              </p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="relative">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <div className="relative flex-1 sm:flex-initial min-w-0">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   placeholder="Search snippets..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 w-56 h-9"
+                  className="pl-9 w-full sm:w-56 h-9"
                 />
               </div>
               <Button
@@ -371,10 +436,10 @@ function Index() {
                 className="h-9"
                 onClick={() => { setCompareIds([]); setComparePicker(true); }}
               >
-                <GitCompare className="w-4 h-4 mr-1" /> Compare
+                <GitCompare className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">Compare</span>
               </Button>
               <Button onClick={addCard} disabled={!seg} size="sm" className="h-9">
-                <Plus className="w-4 h-4 mr-1" /> New snippet
+                <Plus className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">New snippet</span>
               </Button>
             </div>
           </div>
@@ -426,7 +491,7 @@ function Index() {
           )}
         </header>
 
-        <div className="flex-1 overflow-auto p-6 bg-background">
+        <div className="flex-1 overflow-auto p-3 sm:p-6 bg-background">
           {!seg ? (
             <EmptyState icon={Layers} title="No segment selected" hint="Pick a segment from the sidebar." />
           ) : filteredCards.length === 0 ? (
@@ -441,7 +506,7 @@ function Index() {
                 <article
                   key={c.id}
                   className="group rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden"
-                  style={{ width: c.width }}
+                  style={{ width: c.width, maxWidth: "100%" }}
                 >
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                     <div className="flex items-center gap-2 min-w-0">

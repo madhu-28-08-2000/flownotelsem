@@ -58,6 +58,8 @@ function Index() {
   const [confirmDel, setConfirmDel] = useState<{ msg: string; onYes: () => void } | null>(null);
   const [search, setSearch] = useState("");
   const [devicePreview, setDevicePreview] = useState<DevicePreview>(null);
+  const [notesCardId, setNotesCardId] = useState<string | null>(null);
+  const [newNote, setNewNote] = useState("");
   const [comparePicker, setComparePicker] = useState(false);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareView, setCompareView] = useState<string[] | null>(null);

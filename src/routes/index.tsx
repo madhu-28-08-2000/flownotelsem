@@ -68,9 +68,10 @@ function Index() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       const data: Language[] = raw ? JSON.parse(raw) : seed();
-      // migrate: ensure height exists
+      // migrate: ensure height + notes exist
       data.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
         if (typeof c.height !== "number") c.height = 270;
+        if (!Array.isArray(c.notes)) c.notes = [];
       })));
       setLangs(data);
       setActiveLang(data[0]?.id ?? "");

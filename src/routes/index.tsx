@@ -29,7 +29,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 
 const seed = (): Language[] => {
   const mkCards = (names: string[]): Card[] =>
-    names.map((n) => ({ id: uid(), name: n, html: "", width: 380, height: 320 }));
+    names.map((n) => ({ id: uid(), name: n, html: "", width: 380, height: 270 }));
   const mkSegs = (): Segment[] => [
     { id: uid(), name: "C-Level", cards: mkCards(["Intro", "Follow-up 1", "Follow-up 2", "Follow-up 3", "Follow-up 4", "Follow-up 5"]) },
     { id: uid(), name: "HR", cards: mkCards(["Intro", "Follow-up"]) },
@@ -71,7 +71,7 @@ function Index() {
       const data: Language[] = raw ? JSON.parse(raw) : seed();
       // migrate: ensure height exists
       data.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
-        if (typeof c.height !== "number") c.height = 320;
+        if (typeof c.height !== "number") c.height = 270;
       })));
       setLangs(data);
       setActiveLang(data[0]?.id ?? "");
@@ -196,7 +196,7 @@ function Index() {
         update((d) => {
           const L = d.find((l) => l.id === lang.id)!;
           const S = L.segments.find((s) => s.id === seg.id)!;
-          S.cards.push({ id: uid(), name, html: "", width: 380, height: 320 });
+          S.cards.push({ id: uid(), name, html: "", width: 380, height: 270 });
           return d;
         }),
     });

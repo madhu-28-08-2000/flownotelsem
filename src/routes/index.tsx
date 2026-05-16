@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus, Pencil, Trash2, Save, X, Code2, ExternalLink,
   Languages, Layers, FileCode, Search, MoreHorizontal,
-  Smartphone, Monitor, GitCompare, Upload, Check,
+  Smartphone, Monitor, GitCompare, Upload, Check, StickyNote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,23 +20,22 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Card = { id: string; name: string; html: string; width: number; height: number };
+type Note = { id: string; text: string; createdAt: number };
+type Card = { id: string; name: string; html: string; width: number; height: number; notes: Note[] };
 type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
-const STORAGE_KEY = "html-snippet-manager-v3";
+const STORAGE_KEY = "html-snippet-manager-v4";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const seed = (): Language[] => {
   const mkCards = (names: string[]): Card[] =>
-    names.map((n) => ({ id: uid(), name: n, html: "", width: 380, height: 270 }));
+    names.map((n) => ({ id: uid(), name: n, html: "", width: 380, height: 270, notes: [] }));
   const mkSegs = (): Segment[] => [
-    { id: uid(), name: "C-Level", cards: mkCards(["Intro", "Follow-up 1", "Follow-up 2", "Follow-up 3", "Follow-up 4", "Follow-up 5"]) },
     { id: uid(), name: "HR", cards: mkCards(["Intro", "Follow-up"]) },
     { id: uid(), name: "VP", cards: mkCards(["Intro", "Follow-up"]) },
   ];
   return [
-    { id: uid(), name: "German", segments: mkSegs() },
     { id: uid(), name: "English", segments: mkSegs() },
   ];
 };
@@ -59,6 +58,8 @@ function Index() {
   const [confirmDel, setConfirmDel] = useState<{ msg: string; onYes: () => void } | null>(null);
   const [search, setSearch] = useState("");
   const [devicePreview, setDevicePreview] = useState<DevicePreview>(null);
+  const [notesCardId, setNotesCardId] = useState<string | null>(null);
+  const [newNote, setNewNote] = useState("");
   const [comparePicker, setComparePicker] = useState(false);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareView, setCompareView] = useState<string[] | null>(null);
@@ -69,9 +70,10 @@ function Index() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       const data: Language[] = raw ? JSON.parse(raw) : seed();
-      // migrate: ensure height exists
+      // migrate: ensure height + notes exist
       data.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
         if (typeof c.height !== "number") c.height = 270;
+        if (!Array.isArray(c.notes)) c.notes = [];
       })));
       setLangs(data);
       setActiveLang(data[0]?.id ?? "");
@@ -196,7 +198,7 @@ function Index() {
         update((d) => {
           const L = d.find((l) => l.id === lang.id)!;
           const S = L.segments.find((s) => s.id === seg.id)!;
-          S.cards.push({ id: uid(), name, html: "", width: 380, height: 270 });
+          S.cards.push({ id: uid(), name, html: "", width: 380, height: 270, notes: [] });
           return d;
         }),
     });
@@ -509,6 +511,20 @@ function Index() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        className="h-8 px-2 relative"
+                        title="Notes"
+                        onClick={() => setNotesCardId(c.id)}
+                      >
+                        <StickyNote className="w-3.5 h-3.5" />
+                        {c.notes.length > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] leading-none rounded-full w-4 h-4 grid place-items-center font-semibold">
+                            {c.notes.length}
+                          </span>
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         className="h-8 px-2"
                         title="Open in new tab"
                         onClick={() => openInBrowser(c.html)}
@@ -755,6 +771,29 @@ function Index() {
         </DialogContent>
       </Dialog>
 
+      {/* Notes */}
+      <NotesDialog
+        card={notesCardId ? seg?.cards.find(c => c.id === notesCardId) ?? null : null}
+        newNote={newNote}
+        setNewNote={setNewNote}
+        onClose={() => { setNotesCardId(null); setNewNote(""); }}
+        onAdd={() => {
+          const text = newNote.trim();
+          if (!text || !notesCardId) return;
+          const card = seg?.cards.find(c => c.id === notesCardId);
+          if (!card) return;
+          const next: Note[] = [...card.notes, { id: uid(), text, createdAt: Date.now() }];
+          updateCard(notesCardId, { notes: next });
+          setNewNote("");
+        }}
+        onDelete={(noteId: string) => {
+          if (!notesCardId) return;
+          const card = seg?.cards.find(c => c.id === notesCardId);
+          if (!card) return;
+          updateCard(notesCardId, { notes: card.notes.filter(n => n.id !== noteId) });
+        }}
+      />
+
       {/* Prompt */}
       <PromptDialog state={prompt} onClose={() => setPrompt(null)} />
 
@@ -827,6 +866,79 @@ function PromptDialog({
             <Button type="submit">Save</Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NotesDialog({
+  card, newNote, setNewNote, onClose, onAdd, onDelete,
+}: {
+  card: Card | null;
+  newNote: string;
+  setNewNote: (v: string) => void;
+  onClose: () => void;
+  onAdd: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const fmt = (ts: number) =>
+    new Date(ts).toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  const sorted = card ? [...card.notes].sort((a, b) => b.createdAt - a.createdAt) : [];
+  return (
+    <Dialog open={!!card} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <StickyNote className="w-4 h-4 text-primary" />
+            Notes — {card?.name}
+          </DialogTitle>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => { e.preventDefault(); onAdd(); }}
+          className="flex items-start gap-2"
+        >
+          <textarea
+            value={newNote}
+            onChange={(e) => setNewNote(e.target.value)}
+            placeholder="Add a note..."
+            rows={2}
+            className="flex-1 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+          />
+          <Button type="submit" size="sm" className="h-9" disabled={!newNote.trim()}>
+            <Plus className="w-4 h-4 mr-1" /> Add
+          </Button>
+        </form>
+        <div className="flex-1 overflow-auto -mx-6 px-6 space-y-2">
+          {sorted.length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground py-8">
+              No notes yet. Add the first one above.
+            </div>
+          ) : (
+            sorted.map((n) => (
+              <div key={n.id} className="rounded-md border border-border bg-muted/30 p-3 group">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm whitespace-pre-wrap flex-1">{n.text}</p>
+                  <button
+                    onClick={() => onDelete(n.id)}
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                    title="Delete note"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1.5 tabular-nums">
+                  {fmt(n.createdAt)}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

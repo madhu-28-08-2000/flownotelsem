@@ -506,7 +506,7 @@ function Index() {
                 <article
                   key={c.id}
                   className="group rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden"
-                  style={{ width: c.width }}
+                  style={{ width: c.width, maxWidth: "100%" }}
                 >
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                     <div className="flex items-center gap-2 min-w-0">

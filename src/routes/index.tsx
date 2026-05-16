@@ -491,7 +491,7 @@ function Index() {
           )}
         </header>
 
-        <div className="flex-1 overflow-auto p-6 bg-background">
+        <div className="flex-1 overflow-auto p-3 sm:p-6 bg-background">
           {!seg ? (
             <EmptyState icon={Layers} title="No segment selected" hint="Pick a segment from the sidebar." />
           ) : filteredCards.length === 0 ? (

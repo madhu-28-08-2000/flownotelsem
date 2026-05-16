@@ -870,3 +870,76 @@ function PromptDialog({
     </Dialog>
   );
 }
+
+function NotesDialog({
+  card, newNote, setNewNote, onClose, onAdd, onDelete,
+}: {
+  card: Card | null;
+  newNote: string;
+  setNewNote: (v: string) => void;
+  onClose: () => void;
+  onAdd: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const fmt = (ts: number) =>
+    new Date(ts).toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  const sorted = card ? [...card.notes].sort((a, b) => b.createdAt - a.createdAt) : [];
+  return (
+    <Dialog open={!!card} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <StickyNote className="w-4 h-4 text-primary" />
+            Notes — {card?.name}
+          </DialogTitle>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => { e.preventDefault(); onAdd(); }}
+          className="flex items-start gap-2"
+        >
+          <textarea
+            value={newNote}
+            onChange={(e) => setNewNote(e.target.value)}
+            placeholder="Add a note..."
+            rows={2}
+            className="flex-1 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+          />
+          <Button type="submit" size="sm" className="h-9" disabled={!newNote.trim()}>
+            <Plus className="w-4 h-4 mr-1" /> Add
+          </Button>
+        </form>
+        <div className="flex-1 overflow-auto -mx-6 px-6 space-y-2">
+          {sorted.length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground py-8">
+              No notes yet. Add the first one above.
+            </div>
+          ) : (
+            sorted.map((n) => (
+              <div key={n.id} className="rounded-md border border-border bg-muted/30 p-3 group">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm whitespace-pre-wrap flex-1">{n.text}</p>
+                  <button
+                    onClick={() => onDelete(n.id)}
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                    title="Delete note"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1.5 tabular-nums">
+                  {fmt(n.createdAt)}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

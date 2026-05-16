@@ -786,7 +786,7 @@ function Index() {
           updateCard(notesCardId, { notes: next });
           setNewNote("");
         }}
-        onDelete={(noteId) => {
+        onDelete={(noteId: string) => {
           if (!notesCardId) return;
           const card = seg?.cards.find(c => c.id === notesCardId);
           if (!card) return;

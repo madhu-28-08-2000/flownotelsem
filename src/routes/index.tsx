@@ -71,7 +71,7 @@ function Index() {
       const data: Language[] = raw ? JSON.parse(raw) : seed();
       // migrate: ensure height exists
       data.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
-        if (typeof c.height !== "number") c.height = 320;
+        if (typeof c.height !== "number") c.height = 270;
       })));
       setLangs(data);
       setActiveLang(data[0]?.id ?? "");

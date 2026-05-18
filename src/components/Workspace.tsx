@@ -47,7 +47,8 @@ type PromptState = {
 
 type DevicePreview = { html: string; name: string; device: "mobile" | "desktop" } | null;
 
-function Index() {
+export default function Workspace({ workspaceId, workspaceName }: { workspaceId: string; workspaceName: string }) {
+  const STORAGE_KEY = `html-snippet-manager:${workspaceId}`;
   const [langs, setLangs] = useState<Language[]>([]);
   const [activeLang, setActiveLang] = useState<string>("");
   const [activeSeg, setActiveSeg] = useState<string>("");
@@ -63,21 +64,21 @@ function Index() {
   const [compareView, setCompareView] = useState<string[] | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const loaded = useRef(false);
-  const clientIdRef = useRef<string>("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Initial load: try cloud first, fall back to local cache, then seed.
+  // Initial load: cloud → local cache → seed. Re-runs when workspaceId changes.
   useEffect(() => {
-    const clientId = getClientId();
-    clientIdRef.current = clientId;
+    loaded.current = false;
+    setLangs([]);
     (async () => {
       let data: Language[] | null = null;
       try {
         const { data: row } = await supabase
           .from("workspaces")
           .select("data")
-          .eq("client_id", clientId)
+          .eq("client_id", workspaceId)
           .maybeSingle();
         if (row?.data && Array.isArray(row.data)) data = row.data as unknown as Language[];
       } catch (e) {
@@ -90,7 +91,6 @@ function Index() {
         } catch { /* ignore */ }
       }
       if (!data || data.length === 0) data = seed();
-      // migrate: ensure height + notes exist
       data.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
         if (typeof c.height !== "number") c.height = 270;
         if (!Array.isArray(c.notes)) c.notes = [];
@@ -100,7 +100,8 @@ function Index() {
       setActiveSeg(data[0]?.segments[0]?.id ?? "");
       loaded.current = true;
     })();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
 
   // Persist: local cache instantly + debounced cloud upsert.
   useEffect(() => {
@@ -111,12 +112,24 @@ function Index() {
       try {
         await supabase
           .from("workspaces")
-          .upsert({ client_id: clientIdRef.current, data: langs as unknown as never, updated_at: new Date().toISOString() });
+          .upsert({ client_id: workspaceId, data: langs as unknown as never, updated_at: new Date().toISOString() });
       } catch (e) {
         console.warn("Cloud save failed:", e);
       }
     }, 600);
-  }, [langs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [langs, workspaceId]);
+
+  const copyShareLink = async () => {
+    const url = `${window.location.origin}/w/${workspaceId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1500);
+    } catch {
+      window.prompt("Copy this link:", url);
+    }
+  };
 
   const lang = useMemo(() => langs.find((l) => l.id === activeLang), [langs, activeLang]);
   const seg = useMemo(() => lang?.segments.find((s) => s.id === activeSeg), [lang, activeSeg]);

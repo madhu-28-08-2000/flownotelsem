@@ -19,22 +19,11 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import flownoteLogo from "@/assets/flownote-logo.svg";
 
-export const Route = createFileRoute("/")({
-  component: Index,
-});
-
 type Note = { id: string; text: string; createdAt: number };
 type Card = { id: string; name: string; html: string; width: number; height: number; notes: Note[] };
 type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
-const STORAGE_KEY = "html-snippet-manager-v4";
-// Shared workspace ID so all browsers/devices see the same data
-const SHARED_WORKSPACE_ID = "flownote-shared-workspace";
-
-function getClientId(): string {
-  return SHARED_WORKSPACE_ID;
-}
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const seed = (): Language[] => {

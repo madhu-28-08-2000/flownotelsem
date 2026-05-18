@@ -1,1005 +1,235 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Plus, Pencil, Trash2, Save, X, Code2, ExternalLink,
-  Languages, Layers, FileCode, Search, MoreHorizontal,
-  Smartphone, Monitor, GitCompare, Upload, Check, StickyNote, Menu,
-} from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Users, ArrowRight, Share2, Check, Trash2, Search } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Slider } from "@/components/ui/slider";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
 import flownoteLogo from "@/assets/flownote-logo.svg";
 
 export const Route = createFileRoute("/")({
-  component: Index,
+  component: ClientsLanding,
 });
 
-type Note = { id: string; text: string; createdAt: number };
-type Card = { id: string; name: string; html: string; width: number; height: number; notes: Note[] };
-type Segment = { id: string; name: string; cards: Card[] };
-type Language = { id: string; name: string; segments: Segment[] };
+type Client = { id: string; name: string; created_at: string };
 
-const STORAGE_KEY = "html-snippet-manager-v4";
-// Shared workspace ID so all browsers/devices see the same data
-const SHARED_WORKSPACE_ID = "flownote-shared-workspace";
+const slugify = (s: string) =>
+  s.toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
 
-function getClientId(): string {
-  return SHARED_WORKSPACE_ID;
-}
-const uid = () => Math.random().toString(36).slice(2, 10);
+const shortId = () => Math.random().toString(36).slice(2, 6);
 
-const seed = (): Language[] => {
-  const mkCards = (names: string[]): Card[] =>
-    names.map((n) => ({ id: uid(), name: n, html: "", width: 380, height: 270, notes: [] }));
-  const mkSegs = (): Segment[] => [
-    { id: uid(), name: "HR", cards: mkCards(["Intro", "Follow-up"]) },
-    { id: uid(), name: "VP", cards: mkCards(["Intro", "Follow-up"]) },
-  ];
-  return [
-    { id: uid(), name: "English", segments: mkSegs() },
-  ];
-};
-
-type PromptState = {
-  title: string;
-  label: string;
-  initial?: string;
-  onConfirm: (val: string) => void;
-} | null;
-
-type DevicePreview = { html: string; name: string; device: "mobile" | "desktop" } | null;
-
-function Index() {
-  const [langs, setLangs] = useState<Language[]>([]);
-  const [activeLang, setActiveLang] = useState<string>("");
-  const [activeSeg, setActiveSeg] = useState<string>("");
-  const [editor, setEditor] = useState<{ cardId: string; html: string; name: string } | null>(null);
-  const [prompt, setPrompt] = useState<PromptState>(null);
-  const [confirmDel, setConfirmDel] = useState<{ msg: string; onYes: () => void } | null>(null);
+function ClientsLanding() {
+  const navigate = useNavigate();
+  const [clients, setClients] = useState<Client[] | null>(null);
   const [search, setSearch] = useState("");
-  const [devicePreview, setDevicePreview] = useState<DevicePreview>(null);
-  const [notesCardId, setNotesCardId] = useState<string | null>(null);
-  const [newNote, setNewNote] = useState("");
-  const [comparePicker, setComparePicker] = useState(false);
-  const [compareIds, setCompareIds] = useState<string[]>([]);
-  const [compareView, setCompareView] = useState<string[] | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const loaded = useRef(false);
-  const clientIdRef = useRef<string>("");
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<Client | null>(null);
 
-  // Initial load: try cloud first, fall back to local cache, then seed.
-  useEffect(() => {
-    const clientId = getClientId();
-    clientIdRef.current = clientId;
-    (async () => {
-      let data: Language[] | null = null;
-      try {
-        const { data: row } = await supabase
-          .from("workspaces")
-          .select("data")
-          .eq("client_id", clientId)
-          .maybeSingle();
-        if (row?.data && Array.isArray(row.data)) data = row.data as unknown as Language[];
-      } catch (e) {
-        console.warn("Cloud load failed, falling back to local:", e);
-      }
-      if (!data) {
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (raw) data = JSON.parse(raw) as Language[];
-        } catch { /* ignore */ }
-      }
-      if (!data || data.length === 0) data = seed();
-      // migrate: ensure height + notes exist
-      data.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
-        if (typeof c.height !== "number") c.height = 270;
-        if (!Array.isArray(c.notes)) c.notes = [];
-      })));
-      setLangs(data);
-      setActiveLang(data[0]?.id ?? "");
-      setActiveSeg(data[0]?.segments[0]?.id ?? "");
-      loaded.current = true;
-    })();
-  }, []);
-
-  // Persist: local cache instantly + debounced cloud upsert.
-  useEffect(() => {
-    if (!loaded.current) return;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(langs)); } catch { /* ignore */ }
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        await supabase
-          .from("workspaces")
-          .upsert({ client_id: clientIdRef.current, data: langs as unknown as never, updated_at: new Date().toISOString() });
-      } catch (e) {
-        console.warn("Cloud save failed:", e);
-      }
-    }, 600);
-  }, [langs]);
-
-  const lang = useMemo(() => langs.find((l) => l.id === activeLang), [langs, activeLang]);
-  const seg = useMemo(() => lang?.segments.find((s) => s.id === activeSeg), [lang, activeSeg]);
-
-  // Flat index of all snippets for compare lookup
-  const allSnippets = useMemo(() => {
-    const out: { id: string; name: string; html: string; lang: string; seg: string }[] = [];
-    langs.forEach(l => l.segments.forEach(s => s.cards.forEach(c => {
-      out.push({ id: c.id, name: c.name, html: c.html, lang: l.name, seg: s.name });
-    })));
-    return out;
-  }, [langs]);
-
-  const update = (fn: (d: Language[]) => Language[]) => setLangs((d) => fn(structuredClone(d)));
-
-  const askPrompt = (cfg: NonNullable<PromptState>) => setPrompt(cfg);
-  const askConfirm = (msg: string, onYes: () => void) => setConfirmDel({ msg, onYes });
-
-  const addLang = () =>
-    askPrompt({
-      title: "New language",
-      label: "Language name",
-      onConfirm: (name) => {
-        const id = uid();
-        update((d) => {
-          d.push({ id, name, segments: [{ id: uid(), name: "New Segment", cards: [] }] });
-          return d;
-        });
-        setActiveLang(id);
-        setTimeout(() => setActiveSeg(""), 0);
-      },
-    });
-
-  const renameLang = (id: string) => {
-    const cur = langs.find((l) => l.id === id);
-    askPrompt({
-      title: "Rename language",
-      label: "Language name",
-      initial: cur?.name,
-      onConfirm: (name) => update((d) => d.map((l) => (l.id === id ? { ...l, name } : l))),
-    });
+  const load = async () => {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("id, name, created_at")
+      .order("created_at", { ascending: true });
+    if (error) console.warn("Failed to load clients:", error);
+    setClients(data ?? []);
   };
 
-  const delLang = (id: string) =>
-    askConfirm("Delete this language and all its segments?", () => {
-      update((d) => d.filter((l) => l.id !== id));
-      if (activeLang === id) {
-        const next = langs.find((l) => l.id !== id);
-        setActiveLang(next?.id ?? "");
-        setActiveSeg(next?.segments[0]?.id ?? "");
-      }
-    });
+  useEffect(() => { load(); }, []);
 
-  const addSeg = () => {
-    if (!lang) return;
-    askPrompt({
-      title: "New segment",
-      label: "Segment name",
-      onConfirm: (name) => {
-        const id = uid();
-        update((d) => {
-          const L = d.find((l) => l.id === lang.id)!;
-          L.segments.push({ id, name, cards: [] });
-          return d;
-        });
-        setActiveSeg(id);
-      },
-    });
+  const filtered = useMemo(() => {
+    if (!clients) return [];
+    const q = search.toLowerCase();
+    return clients.filter(c => c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q));
+  }, [clients, search]);
+
+  const createClient = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    setBusy(true);
+    const base = slugify(name) || "client";
+    const existing = new Set((clients ?? []).map(c => c.id));
+    let id = base;
+    while (existing.has(id)) id = `${base}-${shortId()}`;
+    const { error } = await supabase.from("clients").insert({ id, name });
+    setBusy(false);
+    if (error) {
+      console.error(error);
+      return;
+    }
+    setCreating(false);
+    setNewName("");
+    navigate({ to: "/w/$workspaceId", params: { workspaceId: id } });
   };
 
-  const renameSeg = (id: string) => {
-    if (!lang) return;
-    const cur = lang.segments.find((s) => s.id === id);
-    askPrompt({
-      title: "Rename segment",
-      label: "Segment name",
-      initial: cur?.name,
-      onConfirm: (name) =>
-        update((d) => {
-          const L = d.find((l) => l.id === lang.id)!;
-          L.segments = L.segments.map((s) => (s.id === id ? { ...s, name } : s));
-          return d;
-        }),
-    });
-  };
-
-  const delSeg = (id: string) => {
-    if (!lang) return;
-    askConfirm("Delete this segment?", () => {
-      update((d) => {
-        const L = d.find((l) => l.id === lang.id)!;
-        L.segments = L.segments.filter((s) => s.id !== id);
-        return d;
-      });
-      if (activeSeg === id) setActiveSeg(lang.segments.find((s) => s.id !== id)?.id ?? "");
-    });
-  };
-
-  const addCard = () => {
-    if (!lang || !seg) return;
-    askPrompt({
-      title: "New HTML snippet",
-      label: "Card name",
-      initial: `Card ${seg.cards.length + 1}`,
-      onConfirm: (name) =>
-        update((d) => {
-          const L = d.find((l) => l.id === lang.id)!;
-          const S = L.segments.find((s) => s.id === seg.id)!;
-          S.cards.push({ id: uid(), name, html: "", width: 380, height: 270, notes: [] });
-          return d;
-        }),
-    });
-  };
-
-  const updateCard = (cardId: string, patch: Partial<Card>) => {
-    if (!lang || !seg) return;
-    update((d) => {
-      const L = d.find((l) => l.id === lang.id)!;
-      const S = L.segments.find((s) => s.id === seg.id)!;
-      S.cards = S.cards.map((c) => (c.id === cardId ? { ...c, ...patch } : c));
-      return d;
-    });
-  };
-
-  const renameCard = (cardId: string) => {
-    const cur = seg?.cards.find((c) => c.id === cardId);
-    askPrompt({
-      title: "Rename card",
-      label: "Card name",
-      initial: cur?.name,
-      onConfirm: (name) => updateCard(cardId, { name }),
-    });
-  };
-
-  const delCard = (cardId: string) =>
-    askConfirm("Delete this card?", () => {
-      if (!lang || !seg) return;
-      update((d) => {
-        const L = d.find((l) => l.id === lang.id)!;
-        const S = L.segments.find((s) => s.id === seg.id)!;
-        S.cards = S.cards.filter((c) => c.id !== cardId);
-        return d;
-      });
-    });
-
-  const openInBrowser = (html: string) => {
-    const w = window.open("", "_blank");
-    if (w) {
-      w.document.open();
-      w.document.write(html || "<!doctype html><html><body><p style='font-family:sans-serif;color:#666;padding:24px'>Empty snippet</p></body></html>");
-      w.document.close();
+  const copyShare = async (id: string) => {
+    const url = `${window.location.origin}/w/${id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(c => (c === id ? null : c)), 1500);
+    } catch {
+      window.prompt("Copy this link:", url);
     }
   };
 
-  const handleDropFile = async (file: File) => {
-    if (!editor) return;
-    const text = await file.text();
-    setEditor({ ...editor, html: text });
+  const deleteClient = async (client: Client) => {
+    // Best-effort cleanup of related workspace data.
+    await supabase.from("workspaces").delete().eq("client_id", client.id);
+    const { error } = await supabase.from("clients").delete().eq("id", client.id);
+    if (error) console.warn(error);
+    setConfirmDel(null);
+    load();
   };
-
-  const handlePickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f && editor) {
-      const text = await f.text();
-      setEditor({ ...editor, html: text });
-    }
-    e.target.value = "";
-  };
-
-  const filteredCards = useMemo(
-    () =>
-      seg?.cards.filter((c) => c.name.toLowerCase().includes(search.toLowerCase())) ?? [],
-    [seg, search]
-  );
-
-  const totalSnippets = langs.reduce(
-    (acc, l) => acc + l.segments.reduce((a, s) => a + s.cards.length, 0),
-    0
-  );
-
-  const toggleCompare = (id: string) => {
-    setCompareIds(prev => {
-      if (prev.includes(id)) return prev.filter(x => x !== id);
-      if (prev.length >= 4) return prev;
-      return [...prev, id];
-    });
-  };
-
-  const sidebarInner = (
-    <>
-      <div className="px-4 py-4 border-b border-border">
-        <img src={flownoteLogo} alt="FlowNote" className="block w-[calc(100%-1rem)] mx-auto h-auto" />
-        <div className="mt-2 text-xs text-muted-foreground text-right">{totalSnippets} snippets</div>
-      </div>
-
-      <div className="px-3 py-3 flex-1 overflow-y-auto">
-        <div className="flex items-center justify-between px-2 mb-2">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            <Languages className="w-3.5 h-3.5" /> Languages
-          </div>
-          <button
-            onClick={addLang}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-            title="Add language"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="space-y-0.5 mb-5">
-          {langs.map((l) => (
-            <div key={l.id} className="group flex items-center">
-              <button
-                onClick={() => {
-                  setActiveLang(l.id);
-                  setActiveSeg(l.segments[0]?.id ?? "");
-                  setMobileNavOpen(false);
-                }}
-                className={cn(
-                  "flex-1 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-between",
-                  activeLang === l.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-                )}
-              >
-                <span className="truncate">{l.name}</span>
-                <span className="text-xs text-muted-foreground">{l.segments.length}</span>
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="p-1 opacity-60 md:opacity-0 md:group-hover:opacity-100 text-muted-foreground hover:text-foreground">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => renameLang(l.id)}>
-                    <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => delLang(l.id)} className="text-destructive">
-                    <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
-  );
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      {/* Sidebar (desktop) */}
-      <aside className="hidden md:flex w-64 border-r border-border bg-sidebar flex-col">
-        {sidebarInner}
-      </aside>
-
-      {/* Sidebar (mobile) */}
-      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-        <SheetContent side="left" className="p-0 w-72 bg-sidebar flex flex-col">
-          {sidebarInner}
-        </SheetContent>
-      </Sheet>
-
-      {/* Main */}
-      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <header className="border-b border-border bg-card px-4 sm:px-8 pt-4 sm:pt-8">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 pb-4 sm:pb-6">
-            <div className="min-w-0 flex items-start gap-2">
-              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="ghost" size="sm" className="md:hidden h-9 w-9 p-0 -ml-2 mt-1 shrink-0">
-                    <Menu className="w-5 h-5" />
-                  </Button>
-                </SheetTrigger>
-              </Sheet>
-              <div className="min-w-0">
-                <div className="text-xs font-semibold text-primary uppercase tracking-[0.18em] mb-1 sm:mb-2">
-                  {lang?.name ?? "—"}
-                </div>
-                <h1 className="text-2xl sm:text-4xl font-bold tracking-tight truncate">
-                  {seg?.name ?? "Select a segment"}
-                </h1>
-                <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2">
-                  {seg?.cards.length ?? 0} snippet{(seg?.cards.length ?? 0) === 1 ? "" : "s"} in this segment
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              <div className="relative flex-1 sm:flex-initial min-w-0">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search snippets..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 w-full sm:w-56 h-9"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9"
-                onClick={() => { setCompareIds([]); setComparePicker(true); }}
-              >
-                <GitCompare className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">Compare</span>
-              </Button>
-              <Button onClick={addCard} disabled={!seg} size="sm" className="h-9">
-                <Plus className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">New snippet</span>
-              </Button>
-            </div>
-          </div>
-
-          {lang && (
-            <div className="flex items-center gap-1 overflow-x-auto -mb-px">
-              {lang.segments.map((s) => (
-                <div key={s.id} className="group relative flex items-center">
-                  <button
-                    onClick={() => setActiveSeg(s.id)}
-                    className={cn(
-                      "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2",
-                      activeSeg === s.id
-                        ? "border-primary text-primary"
-                        : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {s.name}
-                    <span className={cn(
-                      "text-xs rounded-full px-1.5 py-0.5 tabular-nums",
-                      activeSeg === s.id ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
-                    )}>{s.cards.length}</span>
-                  </button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button className="p-1 mr-1 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity">
-                        <MoreHorizontal className="w-3.5 h-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => renameSeg(s.id)}>
-                        <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => delSeg(s.id)} className="text-destructive">
-                        <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              ))}
-              <button
-                onClick={addSeg}
-                className="ml-1 mb-1 p-2 text-muted-foreground hover:text-foreground rounded-md hover:bg-muted transition-colors"
-                title="Add segment"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-        </header>
-
-        <div className="flex-1 overflow-auto p-3 sm:p-6 bg-background">
-          {!seg ? (
-            <EmptyState icon={Layers} title="No segment selected" hint="Pick a segment from the sidebar." />
-          ) : filteredCards.length === 0 ? (
-            <EmptyState
-              icon={FileCode}
-              title={search ? "No matches" : "No snippets yet"}
-              hint={search ? "Try a different search." : "Click “New snippet” to get started."}
-            />
-          ) : (
-            <div className="flex flex-wrap gap-5">
-              {filteredCards.map((c) => (
-                <article
-                  key={c.id}
-                  className="group rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden"
-                  style={{ width: c.width, maxWidth: "100%" }}
-                >
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-2 h-2 rounded-full bg-primary/70 shrink-0" />
-                      <h3 className="text-lg font-semibold truncate tracking-tight">{c.name}</h3>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="p-1 text-muted-foreground hover:text-foreground">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => renameCard(c.id)}>
-                          <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => delCard(c.id)} className="text-destructive">
-                          <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-
-                  <div className="relative bg-muted/30 overflow-hidden" style={{ height: c.height }}>
-                    {c.html ? (
-                      <iframe
-                        srcDoc={c.html}
-                        className="w-full h-full border-0 bg-white"
-                        sandbox=""
-                        title={c.name}
-                      />
-                    ) : (
-                      <div className="h-full grid place-items-center text-xs text-muted-foreground">
-                        Empty — click Edit to add HTML
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-2 flex-wrap">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-8"
-                      onClick={() => setEditor({ cardId: c.id, html: c.html, name: c.name })}
-                    >
-                      <Code2 className="w-3.5 h-3.5 mr-1" /> Edit
-                    </Button>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2"
-                        title="Mobile preview"
-                        onClick={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
-                      >
-                        <Smartphone className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2"
-                        title="Desktop preview"
-                        onClick={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
-                      >
-                        <Monitor className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 relative"
-                        title="Notes"
-                        onClick={() => setNotesCardId(c.id)}
-                      >
-                        <StickyNote className="w-3.5 h-3.5" />
-                        {c.notes.length > 0 && (
-                          <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] leading-none rounded-full w-4 h-4 grid place-items-center font-semibold">
-                            {c.notes.length}
-                          </span>
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2"
-                        title="Open in new tab"
-                        onClick={() => openInBrowser(c.html)}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="px-4 pb-3 space-y-2 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-3">
-                      <span className="shrink-0 w-12">Width</span>
-                      <Slider
-                        value={[c.width]}
-                        min={280}
-                        max={780}
-                        step={10}
-                        onValueChange={(v) => updateCard(c.id, { width: v[0] })}
-                        className="flex-1"
-                      />
-                      <span className="tabular-nums w-12 text-right">{c.width}px</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="shrink-0 w-12">Height</span>
-                      <Slider
-                        value={[c.height]}
-                        min={160}
-                        max={720}
-                        step={10}
-                        onValueChange={(v) => updateCard(c.id, { height: v[0] })}
-                        className="flex-1"
-                      />
-                      <span className="tabular-nums w-12 text-right">{c.height}px</span>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="border-b border-border bg-card">
+        <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 flex items-center justify-between gap-4">
+          <img src={flownoteLogo} alt="FlowNote" className="h-10 w-auto" />
+          <Button size="sm" onClick={() => { setNewName(""); setCreating(true); }}>
+            <Plus className="w-4 h-4 mr-1" /> New client
+          </Button>
         </div>
-      </main>
+      </header>
 
-      {/* Editor */}
-      <Dialog open={!!editor} onOpenChange={(o) => !o && setEditor(null)}>
-        <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-5 py-4 border-b border-border flex-row items-center justify-between space-y-0">
-            <DialogTitle>Edit HTML — {editor?.name}</DialogTitle>
-            <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary cursor-pointer hover:underline mr-6">
-              <Upload className="w-3.5 h-3.5" /> Upload HTML file
-              <input type="file" accept=".html,.htm,text/html" className="hidden" onChange={handlePickFile} />
-            </label>
-          </DialogHeader>
-          <div
-            className="flex-1 relative"
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              const f = e.dataTransfer.files?.[0];
-              if (f) handleDropFile(f);
-            }}
-          >
-            <textarea
-              value={editor?.html ?? ""}
-              onChange={(e) => editor && setEditor({ ...editor, html: e.target.value })}
-              spellCheck={false}
-              placeholder="<!doctype html>&#10;<html>&#10;  <body>...</body>&#10;</html>&#10;&#10;Tip: drop an .html file here to import."
-              className="w-full h-full p-5 font-mono text-sm bg-muted/40 resize-none outline-none border-0"
-            />
-            {dragOver && (
-              <div className="absolute inset-0 bg-primary/10 border-2 border-dashed border-primary grid place-items-center pointer-events-none">
-                <div className="text-sm font-medium text-primary flex items-center gap-2">
-                  <Upload className="w-4 h-4" /> Drop HTML file to import
-                </div>
-              </div>
-            )}
-          </div>
-          <DialogFooter className="px-5 py-3 border-t border-border">
-            <Button variant="ghost" onClick={() => setEditor(null)}>
-              <X className="w-4 h-4 mr-1" /> Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (editor) updateCard(editor.cardId, { html: editor.html });
-                setEditor(null);
-              }}
-            >
-              <Save className="w-4 h-4 mr-1" /> Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <main className="max-w-5xl mx-auto px-4 sm:px-8 py-8 sm:py-12">
+        <div className="flex items-center gap-2 mb-2 text-primary text-xs font-semibold uppercase tracking-[0.18em]">
+          <Users className="w-3.5 h-3.5" /> Clients
+        </div>
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-2">Pick a client workspace</h1>
+        <p className="text-sm text-muted-foreground mb-6">
+          Each client has its own workspace with a shareable link. Anyone with the link can view and edit that client&apos;s snippets.
+        </p>
 
-      {/* Device preview */}
-      <Dialog open={!!devicePreview} onOpenChange={(o) => !o && setDevicePreview(null)}>
-        <DialogContent className="max-w-[min(95vw,1280px)] h-[88vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-5 py-4 border-b border-border flex-row items-center justify-between space-y-0">
-            <DialogTitle className="flex items-center gap-2">
-              {devicePreview?.device === "mobile" ? <Smartphone className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
-              {devicePreview?.name} — {devicePreview?.device === "mobile" ? "Mobile (375×812)" : "Desktop (1280×800)"}
-            </DialogTitle>
-            <div className="flex items-center gap-1 mr-6">
-              <Button
-                variant={devicePreview?.device === "mobile" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-8"
-                onClick={() => devicePreview && setDevicePreview({ ...devicePreview, device: "mobile" })}
-              >
-                <Smartphone className="w-3.5 h-3.5 mr-1" /> Mobile
-              </Button>
-              <Button
-                variant={devicePreview?.device === "desktop" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-8"
-                onClick={() => devicePreview && setDevicePreview({ ...devicePreview, device: "desktop" })}
-              >
-                <Monitor className="w-3.5 h-3.5 mr-1" /> Desktop
-              </Button>
+        <div className="relative mb-6 max-w-md">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search clients..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 h-10"
+          />
+        </div>
+
+        {clients === null ? (
+          <div className="text-sm text-muted-foreground">Loading clients…</div>
+        ) : clients.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-10 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-muted grid place-items-center mx-auto mb-3">
+              <Users className="w-5 h-5 text-muted-foreground" />
             </div>
-          </DialogHeader>
-          <div className="flex-1 overflow-auto bg-muted/30 grid place-items-center p-6">
-            {devicePreview && (
-              <div
-                className="bg-white rounded-lg shadow-lg overflow-hidden border border-border"
-                style={{
-                  width: devicePreview.device === "mobile" ? 375 : 1280,
-                  height: devicePreview.device === "mobile" ? 812 : 800,
-                  maxWidth: "100%",
-                }}
-              >
-                <iframe
-                  srcDoc={devicePreview.html || "<p style='font-family:sans-serif;color:#666;padding:24px'>Empty snippet</p>"}
-                  className="w-full h-full border-0"
-                  sandbox=""
-                  title={devicePreview.name}
-                />
-              </div>
-            )}
+            <div className="text-sm font-medium">No clients yet</div>
+            <div className="text-xs text-muted-foreground mt-1 mb-4">
+              Create your first client workspace to get started.
+            </div>
+            <Button size="sm" onClick={() => { setNewName(""); setCreating(true); }}>
+              <Plus className="w-4 h-4 mr-1" /> New client
+            </Button>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Compare picker */}
-      <Dialog open={comparePicker} onOpenChange={(o) => { if (!o) setComparePicker(false); }}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Compare snippets</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Select 2 to 4 snippets to view side by side.
-            <span className="ml-2 font-medium text-foreground">{compareIds.length} selected</span>
-          </p>
-          <div className="flex-1 overflow-auto -mx-6 px-6 space-y-4">
-            {langs.map(l => (
-              <div key={l.id}>
-                <div className="text-xs font-semibold text-primary uppercase tracking-wider mb-1">{l.name}</div>
-                {l.segments.map(s => (
-                  <div key={s.id} className="mb-3">
-                    <div className="text-xs text-muted-foreground mb-1 ml-1">{s.name}</div>
-                    <div className="space-y-1">
-                      {s.cards.length === 0 && (
-                        <div className="text-xs text-muted-foreground italic ml-1">No snippets</div>
-                      )}
-                      {s.cards.map(c => {
-                        const checked = compareIds.includes(c.id);
-                        const disabled = !checked && compareIds.length >= 4;
-                        return (
-                          <label
-                            key={c.id}
-                            className={cn(
-                              "flex items-center gap-2 px-3 py-2 rounded-md border text-sm cursor-pointer transition-colors",
-                              checked ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
-                              disabled && "opacity-50 cursor-not-allowed"
-                            )}
-                          >
-                            <Checkbox
-                              checked={checked}
-                              disabled={disabled}
-                              onCheckedChange={() => toggleCompare(c.id)}
-                            />
-                            <span className="flex-1 truncate">{c.name}</span>
-                            {!c.html && <span className="text-xs text-muted-foreground">(empty)</span>}
-                          </label>
-                        );
-                      })}
-                    </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-sm text-muted-foreground">No clients match &ldquo;{search}&rdquo;.</div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {filtered.map((c) => (
+              <div
+                key={c.id}
+                className="group rounded-xl border border-border bg-card p-4 hover:shadow-md transition-shadow flex flex-col"
+              >
+                <Link
+                  to="/w/$workspaceId"
+                  params={{ workspaceId: c.id }}
+                  className="flex-1 min-w-0"
+                >
+                  <div className="text-base font-semibold truncate">{c.name}</div>
+                  <div className="text-[11px] text-muted-foreground font-mono truncate mt-0.5">
+                    /w/{c.id}
                   </div>
-                ))}
+                </Link>
+                <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-border">
+                  <button
+                    onClick={() => copyShare(c.id)}
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    title="Copy share link"
+                  >
+                    {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-primary" /> : <Share2 className="w-3.5 h-3.5" />}
+                    {copiedId === c.id ? "Link copied" : "Copy link"}
+                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setConfirmDel(c)}
+                      className="p-1.5 text-muted-foreground hover:text-destructive rounded-md transition-colors"
+                      title="Delete client"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <Link
+                      to="/w/$workspaceId"
+                      params={{ workspaceId: c.id }}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                    >
+                      Open <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setComparePicker(false)}>Cancel</Button>
-            <Button
-              disabled={compareIds.length < 2}
-              onClick={() => {
-                setCompareView(compareIds);
-                setComparePicker(false);
-              }}
-            >
-              <Check className="w-4 h-4 mr-1" /> Compare ({compareIds.length})
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        )}
+      </main>
 
-      {/* Compare view */}
-      <Dialog open={!!compareView} onOpenChange={(o) => !o && setCompareView(null)}>
-        <DialogContent className="max-w-[98vw] h-[92vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-5 py-4 border-b border-border">
-            <DialogTitle className="flex items-center gap-2">
-              <GitCompare className="w-4 h-4" /> Comparing {compareView?.length ?? 0} snippets
-            </DialogTitle>
+      {/* New client dialog */}
+      <Dialog open={creating} onOpenChange={(o) => !o && setCreating(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>New client workspace</DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-auto bg-muted/30 p-4">
-            <div
-              className="grid gap-4 h-full"
-              style={{ gridTemplateColumns: `repeat(${compareView?.length ?? 1}, minmax(0, 1fr))` }}
-            >
-              {compareView?.map(id => {
-                const s = allSnippets.find(x => x.id === id);
-                if (!s) return null;
-                return (
-                  <div key={id} className="flex flex-col bg-card rounded-lg border border-border overflow-hidden min-w-0">
-                    <div className="px-4 py-3 border-b border-border bg-card">
-                      <div className="text-[10px] font-semibold text-primary uppercase tracking-wider">
-                        {s.lang} · {s.seg}
-                      </div>
-                      <div className="text-base font-semibold truncate">{s.name}</div>
-                    </div>
-                    <div className="flex-1 bg-white">
-                      {s.html ? (
-                        <iframe srcDoc={s.html} className="w-full h-full border-0" sandbox="" title={s.name} />
-                      ) : (
-                        <div className="h-full grid place-items-center text-xs text-muted-foreground">Empty snippet</div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <form
+            onSubmit={(e) => { e.preventDefault(); createClient(); }}
+            className="space-y-3"
+          >
+            <label className="text-sm font-medium">Client name</label>
+            <Input
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. Acme Inc."
+            />
+            <p className="text-xs text-muted-foreground">
+              A shareable link will be generated automatically based on the name.
+            </p>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setCreating(false)}>Cancel</Button>
+              <Button type="submit" disabled={busy || !newName.trim()}>
+                {busy ? "Creating…" : "Create"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
-
-      {/* Notes */}
-      <NotesDialog
-        card={notesCardId ? seg?.cards.find(c => c.id === notesCardId) ?? null : null}
-        newNote={newNote}
-        setNewNote={setNewNote}
-        onClose={() => { setNotesCardId(null); setNewNote(""); }}
-        onAdd={() => {
-          const text = newNote.trim();
-          if (!text || !notesCardId) return;
-          const card = seg?.cards.find(c => c.id === notesCardId);
-          if (!card) return;
-          const next: Note[] = [...card.notes, { id: uid(), text, createdAt: Date.now() }];
-          updateCard(notesCardId, { notes: next });
-          setNewNote("");
-        }}
-        onDelete={(noteId: string) => {
-          if (!notesCardId) return;
-          const card = seg?.cards.find(c => c.id === notesCardId);
-          if (!card) return;
-          updateCard(notesCardId, { notes: card.notes.filter(n => n.id !== noteId) });
-        }}
-      />
-
-      {/* Prompt */}
-      <PromptDialog state={prompt} onClose={() => setPrompt(null)} />
 
       {/* Confirm delete */}
       <Dialog open={!!confirmDel} onOpenChange={(o) => !o && setConfirmDel(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Are you sure?</DialogTitle>
+            <DialogTitle>Delete client?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">{confirmDel?.msg}</p>
+          <p className="text-sm text-muted-foreground">
+            This permanently deletes <span className="font-medium text-foreground">{confirmDel?.name}</span> and all of its workspace data. This can&apos;t be undone.
+          </p>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmDel(null)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                confirmDel?.onYes();
-                setConfirmDel(null);
-              }}
-            >
+            <Button variant="destructive" onClick={() => confirmDel && deleteClient(confirmDel)}>
               Delete
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-function EmptyState({
-  icon: Icon, title, hint,
-}: { icon: typeof FileCode; title: string; hint: string }) {
-  return (
-    <div className="h-full grid place-items-center">
-      <div className="text-center">
-        <div className="w-12 h-12 rounded-2xl bg-muted grid place-items-center mx-auto mb-3">
-          <Icon className="w-5 h-5 text-muted-foreground" />
-        </div>
-        <div className="text-sm font-medium">{title}</div>
-        <div className="text-xs text-muted-foreground mt-1">{hint}</div>
-      </div>
-    </div>
-  );
-}
-
-function PromptDialog({
-  state, onClose,
-}: { state: PromptState; onClose: () => void }) {
-  const [val, setVal] = useState("");
-  useEffect(() => { setVal(state?.initial ?? ""); }, [state]);
-  return (
-    <Dialog open={!!state} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{state?.title}</DialogTitle>
-        </DialogHeader>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const trimmed = val.trim();
-            if (!trimmed) return;
-            state?.onConfirm(trimmed);
-            onClose();
-          }}
-          className="space-y-3"
-        >
-          <label className="text-sm font-medium">{state?.label}</label>
-          <Input autoFocus value={val} onChange={(e) => setVal(e.target.value)} />
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button type="submit">Save</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function NotesDialog({
-  card, newNote, setNewNote, onClose, onAdd, onDelete,
-}: {
-  card: Card | null;
-  newNote: string;
-  setNewNote: (v: string) => void;
-  onClose: () => void;
-  onAdd: () => void;
-  onDelete: (id: string) => void;
-}) {
-  const fmt = (ts: number) =>
-    new Date(ts).toLocaleString(undefined, {
-      year: "numeric", month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-  const sorted = card ? [...card.notes].sort((a, b) => b.createdAt - a.createdAt) : [];
-  return (
-    <Dialog open={!!card} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <StickyNote className="w-4 h-4 text-primary" />
-            Notes — {card?.name}
-          </DialogTitle>
-        </DialogHeader>
-        <form
-          onSubmit={(e) => { e.preventDefault(); onAdd(); }}
-          className="flex items-start gap-2"
-        >
-          <textarea
-            value={newNote}
-            onChange={(e) => setNewNote(e.target.value)}
-            placeholder="Add a note..."
-            rows={2}
-            className="flex-1 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-          />
-          <Button type="submit" size="sm" className="h-9" disabled={!newNote.trim()}>
-            <Plus className="w-4 h-4 mr-1" /> Add
-          </Button>
-        </form>
-        <div className="flex-1 overflow-auto -mx-6 px-6 space-y-2">
-          {sorted.length === 0 ? (
-            <div className="text-center text-sm text-muted-foreground py-8">
-              No notes yet. Add the first one above.
-            </div>
-          ) : (
-            sorted.map((n) => (
-              <div key={n.id} className="rounded-md border border-border bg-muted/30 p-3 group">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm whitespace-pre-wrap flex-1">{n.text}</p>
-                  <button
-                    onClick={() => onDelete(n.id)}
-                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-                    title="Delete note"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="text-[11px] text-muted-foreground mt-1.5 tabular-nums">
-                  {fmt(n.createdAt)}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Close</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

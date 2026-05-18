@@ -1,9 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus, Pencil, Trash2, Save, X, Code2, ExternalLink,
   Languages, Layers, FileCode, Search, MoreHorizontal,
   Smartphone, Monitor, GitCompare, Upload, Check, StickyNote, Menu,
+  ArrowLeft, Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

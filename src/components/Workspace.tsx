@@ -322,7 +322,28 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
     <>
       <div className="px-4 py-4 border-b border-border">
         <img src={flownoteLogo} alt="FlowNote" className="block w-[calc(100%-1rem)] mx-auto h-auto" />
-        <div className="mt-2 text-xs text-muted-foreground text-right">{totalSnippets} snippets</div>
+        <div className="mt-3 px-1">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3 h-3" /> All clients
+          </Link>
+          <div className="mt-1 text-sm font-semibold truncate" title={workspaceName}>
+            {workspaceName}
+          </div>
+          <div className="mt-0.5 flex items-center justify-between gap-2">
+            <span className="text-[11px] text-muted-foreground">{totalSnippets} snippets</span>
+            <button
+              onClick={copyShareLink}
+              className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+              title="Copy shareable workspace link"
+            >
+              {shareCopied ? <Check className="w-3 h-3" /> : <Share2 className="w-3 h-3" />}
+              {shareCopied ? "Copied" : "Share"}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="px-3 py-3 flex-1 overflow-y-auto">

@@ -28,16 +28,11 @@ type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
 const STORAGE_KEY = "html-snippet-manager-v4";
-const CLIENT_ID_KEY = "flownote-client-id";
+// Shared workspace ID so all browsers/devices see the same data
+const SHARED_WORKSPACE_ID = "flownote-shared-workspace";
 
 function getClientId(): string {
-  if (typeof window === "undefined") return "ssr";
-  let id = localStorage.getItem(CLIENT_ID_KEY);
-  if (!id) {
-    id = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36));
-    localStorage.setItem(CLIENT_ID_KEY, id);
-  }
-  return id;
+  return SHARED_WORKSPACE_ID;
 }
 const uid = () => Math.random().toString(36).slice(2, 10);
 

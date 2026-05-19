@@ -26,17 +26,9 @@ type Language = { id: string; name: string; segments: Segment[] };
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-const seed = (): Language[] => {
-  const mkCards = (names: string[]): Card[] =>
-    names.map((n) => ({ id: uid(), name: n, html: "", width: 380, height: 270, notes: [] }));
-  const mkSegs = (): Segment[] => [
-    { id: uid(), name: "HR", cards: mkCards(["Intro", "Follow-up"]) },
-    { id: uid(), name: "VP", cards: mkCards(["Intro", "Follow-up"]) },
-  ];
-  return [
-    { id: uid(), name: "English", segments: mkSegs() },
-  ];
-};
+const seed = (): Language[] => [
+  { id: uid(), name: "English", segments: [{ id: uid(), name: "New Segment", cards: [] }] },
+];
 
 type PromptState = {
   title: string;

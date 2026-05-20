@@ -211,9 +211,14 @@ function ClientsLanding({ onLock }: { onLock: () => void }) {
       <header className="border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 flex items-center justify-between gap-4">
           <img src={flownoteLogo} alt="FlowNote" className="h-10 w-auto" />
-          <Button size="sm" onClick={() => { setNewName(""); setCreating(true); }}>
-            <Plus className="w-4 h-4 mr-1" /> New client
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={onLock} title="Lock client list">
+              Lock
+            </Button>
+            <Button size="sm" onClick={() => { setNewName(""); setCreating(true); }}>
+              <Plus className="w-4 h-4 mr-1" /> New client
+            </Button>
+          </div>
         </div>
       </header>
 

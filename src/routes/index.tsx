@@ -8,8 +8,127 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import flownoteLogo from "@/assets/flownote-logo.svg";
 
 export const Route = createFileRoute("/")({
-  component: ClientsLanding,
+  component: GatedClientsLanding,
 });
+
+const UNLOCK_KEY = "flownote-admin-unlocked";
+const PASS_KEY = "admin_passcode_hash";
+
+async function sha256(text: string): Promise<string> {
+  const buf = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function GatedClientsLanding() {
+  const [state, setState] = useState<"loading" | "setup" | "locked" | "unlocked">("loading");
+  const [pass, setPass] = useState("");
+  const [pass2, setPass2] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && localStorage.getItem(UNLOCK_KEY) === "1") {
+      setState("unlocked");
+      return;
+    }
+    (async () => {
+      const { data } = await supabase
+        .from("app_config" as never)
+        .select("value")
+        .eq("key", PASS_KEY)
+        .maybeSingle();
+      setState((data as { value?: string } | null)?.value ? "locked" : "setup");
+    })();
+  }, []);
+
+  const handleSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (pass.length < 4) { setError("Passcode must be at least 4 characters."); return; }
+    if (pass !== pass2) { setError("Passcodes don't match."); return; }
+    setBusy(true);
+    const hash = await sha256(pass);
+    const { error: err } = await supabase
+      .from("app_config" as never)
+      .insert({ key: PASS_KEY, value: hash } as never);
+    setBusy(false);
+    if (err) { setError(err.message); return; }
+    localStorage.setItem(UNLOCK_KEY, "1");
+    setState("unlocked");
+  };
+
+  const handleUnlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    const hash = await sha256(pass);
+    const { data } = await supabase
+      .from("app_config" as never)
+      .select("value")
+      .eq("key", PASS_KEY)
+      .maybeSingle();
+    setBusy(false);
+    if ((data as { value?: string } | null)?.value === hash) {
+      localStorage.setItem(UNLOCK_KEY, "1");
+      setState("unlocked");
+    } else {
+      setError("Incorrect passcode.");
+    }
+  };
+
+  if (state === "loading") {
+    return <div className="min-h-screen grid place-items-center bg-background text-muted-foreground text-sm">Loading…</div>;
+  }
+
+  if (state === "unlocked") {
+    return <ClientsLanding onLock={() => { localStorage.removeItem(UNLOCK_KEY); setState("locked"); setPass(""); }} />;
+  }
+
+  const isSetup = state === "setup";
+  return (
+    <div className="min-h-screen grid place-items-center bg-background text-foreground p-6">
+      <form
+        onSubmit={isSetup ? handleSetup : handleUnlock}
+        className="w-full max-w-sm rounded-xl border border-border bg-card p-6 space-y-4"
+      >
+        <div className="flex justify-center">
+          <img src={flownoteLogo} alt="FlowNote" className="h-10 w-auto" />
+        </div>
+        <div className="text-center">
+          <h1 className="text-lg font-bold">{isSetup ? "Set admin passcode" : "Admin access"}</h1>
+          <p className="text-xs text-muted-foreground mt-1">
+            {isSetup
+              ? "Choose a passcode to protect the client list. You'll need it to manage clients."
+              : "Enter the admin passcode to view all client workspaces."}
+          </p>
+        </div>
+        <Input
+          type="password"
+          autoFocus
+          placeholder="Passcode"
+          value={pass}
+          onChange={(e) => setPass(e.target.value)}
+        />
+        {isSetup && (
+          <Input
+            type="password"
+            placeholder="Confirm passcode"
+            value={pass2}
+            onChange={(e) => setPass2(e.target.value)}
+          />
+        )}
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <Button type="submit" className="w-full" disabled={busy || !pass}>
+          {busy ? "Please wait…" : isSetup ? "Set passcode & continue" : "Unlock"}
+        </Button>
+        <p className="text-[11px] text-muted-foreground text-center">
+          Shared workspace links don't require this passcode.
+        </p>
+      </form>
+    </div>
+  );
+}
 
 type Client = { id: string; name: string; created_at: string };
 
@@ -21,7 +140,7 @@ const slugify = (s: string) =>
 
 const shortId = () => Math.random().toString(36).slice(2, 6);
 
-function ClientsLanding() {
+function ClientsLanding({ onLock }: { onLock: () => void }) {
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[] | null>(null);
   const [search, setSearch] = useState("");
@@ -92,9 +211,14 @@ function ClientsLanding() {
       <header className="border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 flex items-center justify-between gap-4">
           <img src={flownoteLogo} alt="FlowNote" className="h-10 w-auto" />
-          <Button size="sm" onClick={() => { setNewName(""); setCreating(true); }}>
-            <Plus className="w-4 h-4 mr-1" /> New client
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={onLock} title="Lock client list">
+              Lock
+            </Button>
+            <Button size="sm" onClick={() => { setNewName(""); setCreating(true); }}>
+              <Plus className="w-4 h-4 mr-1" /> New client
+            </Button>
+          </div>
         </div>
       </header>
 

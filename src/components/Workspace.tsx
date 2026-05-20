@@ -1,10 +1,9 @@
-import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus, Pencil, Trash2, Save, X, Code2, ExternalLink,
   Languages, Layers, FileCode, Search, MoreHorizontal,
   Smartphone, Monitor, GitCompare, Upload, Check, StickyNote, Menu,
-  ArrowLeft, Share2,
+  Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -315,12 +314,6 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
       <div className="px-4 py-4 border-b border-border">
         <img src={flownoteLogo} alt="FlowNote" className="block w-[calc(100%-1rem)] mx-auto h-auto" />
         <div className="mt-3 px-1">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft className="w-3 h-3" /> All clients
-          </Link>
           <div className="mt-1 text-sm font-semibold truncate" title={workspaceName}>
             {workspaceName}
           </div>

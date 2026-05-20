@@ -140,7 +140,7 @@ const slugify = (s: string) =>
 
 const shortId = () => Math.random().toString(36).slice(2, 6);
 
-function ClientsLanding() {
+function ClientsLanding({ onLock }: { onLock: () => void }) {
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[] | null>(null);
   const [search, setSearch] = useState("");

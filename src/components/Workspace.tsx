@@ -483,13 +483,16 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
 
           {lang && (
             <div className="flex items-center gap-1 overflow-x-auto -mb-px">
-              {lang.segments.map((s) => (
-                <div key={s.id} className="group relative flex items-center">
+              {lang.segments.map((s) => {
+                const hasIntro = s.cards.some((c) => c.name.toLowerCase().includes("intro"));
+                const dim = introOnly && !hasIntro;
+                return (
+                <div key={s.id} className={cn("group relative flex items-center", dim && "opacity-40")}>
                   <button
                     onClick={() => setActiveSeg(s.id)}
                     className={cn(
                       "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2",
-                      activeSeg === s.id
+                      activeSeg === s.id && !introOnly
                         ? "border-primary text-primary"
                         : "border-transparent text-muted-foreground hover:text-foreground"
                     )}
@@ -497,7 +500,7 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
                     {s.name}
                     <span className={cn(
                       "text-xs rounded-full px-1.5 py-0.5 tabular-nums",
-                      activeSeg === s.id ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                      activeSeg === s.id && !introOnly ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
                     )}>{s.cards.length}</span>
                   </button>
                   <DropdownMenu>
@@ -516,7 +519,8 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              ))}
+                );
+              })}
               <button
                 onClick={addSeg}
                 className="ml-1 mb-1 p-2 text-muted-foreground hover:text-foreground rounded-md hover:bg-muted transition-colors"

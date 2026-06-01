@@ -298,6 +298,27 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
     [seg, search]
   );
 
+  // Intro snippets across all segments of the current language
+  const introCards = useMemo(() => {
+    if (!lang) return [];
+    const out: { seg: Segment; card: Card }[] = [];
+    lang.segments.forEach(s => s.cards.forEach(c => {
+      if (c.name.toLowerCase().includes("intro")) out.push({ seg: s, card: c });
+    }));
+    return out;
+  }, [lang]);
+
+  const copyHtml = async (card: Card) => {
+    try {
+      await navigator.clipboard.writeText(card.html ?? "");
+      setCopiedCardId(card.id);
+      setTimeout(() => setCopiedCardId((id) => (id === card.id ? null : id)), 1200);
+    } catch {
+      window.prompt("Copy HTML:", card.html ?? "");
+    }
+  };
+
+
   const totalSnippets = langs.reduce(
     (acc, l) => acc + l.segments.reduce((a, s) => a + s.cards.length, 0),
     0

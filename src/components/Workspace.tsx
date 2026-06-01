@@ -56,6 +56,8 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
   const [dragOver, setDragOver] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [introOnly, setIntroOnly] = useState(false);
+  const [copiedCardId, setCopiedCardId] = useState<string | null>(null);
   const loaded = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 

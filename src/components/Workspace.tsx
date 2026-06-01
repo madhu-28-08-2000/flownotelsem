@@ -458,6 +458,16 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
                 />
               </div>
               <Button
+                variant={introOnly ? "default" : "outline"}
+                size="sm"
+                className="h-9"
+                onClick={() => setIntroOnly((v) => !v)}
+                title="Show only intro snippets across all segments"
+              >
+                {introOnly ? <EyeOff className="w-4 h-4 sm:mr-1" /> : <Eye className="w-4 h-4 sm:mr-1" />}
+                <span className="hidden sm:inline">{introOnly ? "Show all" : "Show only intros"}</span>
+              </Button>
+              <Button
                 variant="outline"
                 size="sm"
                 className="h-9"
@@ -465,7 +475,7 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
               >
                 <GitCompare className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">Compare</span>
               </Button>
-              <Button onClick={addCard} disabled={!seg} size="sm" className="h-9">
+              <Button onClick={addCard} disabled={!seg || introOnly} size="sm" className="h-9">
                 <Plus className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">New snippet</span>
               </Button>
             </div>

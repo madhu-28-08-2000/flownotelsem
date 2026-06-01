@@ -19,7 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import flownoteLogo from "@/assets/flownote-logo.svg";
 
 type Note = { id: string; text: string; createdAt: number };
-type Card = { id: string; name: string; html: string; width: number; height: number; notes: Note[] };
+type Card = { id: string; name: string; subject?: string; html: string; width: number; height: number; notes: Note[] };
 type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 

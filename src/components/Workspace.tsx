@@ -893,6 +893,149 @@ function EmptyState({
   );
 }
 
+type CardArticleProps = {
+  card: Card;
+  contextLabel?: string;
+  copied: boolean;
+  onEdit: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  onMobilePreview: () => void;
+  onDesktopPreview: () => void;
+  onNotes: () => void;
+  onOpen: () => void;
+  onCopy: () => void;
+  onSubjectChange: (v: string) => void;
+  onWidthChange: (v: number) => void;
+  onHeightChange: (v: number) => void;
+};
+
+function CardArticle({
+  card: c, contextLabel, copied,
+  onEdit, onRename, onDelete,
+  onMobilePreview, onDesktopPreview, onNotes, onOpen, onCopy,
+  onSubjectChange, onWidthChange, onHeightChange,
+}: CardArticleProps) {
+  return (
+    <article
+      className="group rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden"
+      style={{ width: c.width, maxWidth: "100%" }}
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-2 h-2 rounded-full bg-primary/70 shrink-0" />
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold truncate tracking-tight">{c.name}</h3>
+            {contextLabel && (
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground truncate">{contextLabel}</div>
+            )}
+          </div>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="p-1 text-muted-foreground hover:text-foreground">
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onRename}>
+              <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onDelete} className="text-destructive">
+              <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="px-4 pt-3">
+        <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Subject line</label>
+        <Input
+          value={c.subject ?? ""}
+          onChange={(e) => onSubjectChange(e.target.value)}
+          placeholder="e.g. Welcome to our newsletter ✨"
+          className="mt-1 h-8 text-sm"
+        />
+      </div>
+
+      <div className="relative bg-muted/30 overflow-hidden mt-3" style={{ height: c.height }}>
+        {c.html ? (
+          <iframe
+            srcDoc={c.html}
+            className="w-full h-full border-0 bg-white"
+            sandbox=""
+            title={c.name}
+          />
+        ) : (
+          <div className="h-full grid place-items-center text-xs text-muted-foreground">
+            Empty — click Edit to add HTML
+          </div>
+        )}
+      </div>
+
+      <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <Button variant="secondary" size="sm" className="h-8" onClick={onEdit}>
+            <Code2 className="w-3.5 h-3.5 mr-1" /> Edit
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={onCopy}
+            title="Copy HTML to clipboard"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" className="h-8 px-2" title="Mobile preview" onClick={onMobilePreview}>
+            <Smartphone className="w-3.5 h-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 px-2" title="Desktop preview" onClick={onDesktopPreview}>
+            <Monitor className="w-3.5 h-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 px-2 relative" title="Notes" onClick={onNotes}>
+            <StickyNote className="w-3.5 h-3.5" />
+            {c.notes.length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] leading-none rounded-full w-4 h-4 grid place-items-center font-semibold">
+                {c.notes.length}
+              </span>
+            )}
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 px-2" title="Open in new tab" onClick={onOpen}>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="px-4 pb-3 space-y-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-3">
+          <span className="shrink-0 w-12">Width</span>
+          <Slider
+            value={[c.width]} min={280} max={780} step={10}
+            onValueChange={(v) => onWidthChange(v[0])}
+            className="flex-1"
+          />
+          <span className="tabular-nums w-12 text-right">{c.width}px</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="shrink-0 w-12">Height</span>
+          <Slider
+            value={[c.height]} min={160} max={720} step={10}
+            onValueChange={(v) => onHeightChange(v[0])}
+            className="flex-1"
+          />
+          <span className="tabular-nums w-12 text-right">{c.height}px</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+
+
 function PromptDialog({
   state, onClose,
 }: { state: PromptState; onClose: () => void }) {

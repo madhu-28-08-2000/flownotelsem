@@ -545,7 +545,50 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
         </header>
 
         <div className="flex-1 overflow-auto p-3 sm:p-6 bg-background">
-          {!seg ? (
+          {introOnly ? (
+            introCards.length === 0 ? (
+              <EmptyState
+                icon={FileCode}
+                title="No intro snippets"
+                hint='Name a snippet with "intro" to make it show up here.'
+              />
+            ) : (
+              <div className="space-y-6">
+                <div className="text-xs text-muted-foreground">
+                  Showing {introCards.length} intro snippet{introCards.length === 1 ? "" : "s"} across all segments. Other snippets are hidden.
+                </div>
+                <div className="flex flex-wrap gap-5">
+                  {introCards.map(({ seg: parentSeg, card: c }) => (
+                    <CardArticle
+                      key={c.id}
+                      card={c}
+                      contextLabel={parentSeg.name}
+                      onEdit={() => setEditor({ cardId: c.id, html: c.html, name: c.name })}
+                      onRename={() => {
+                        const patch = (name: string) => updateCardById(c.id, { name });
+                        askPrompt({ title: "Rename card", label: "Card name", initial: c.name, onConfirm: patch });
+                      }}
+                      onDelete={() => askConfirm("Delete this card?", () => {
+                        update((d) => {
+                          d.forEach(L => L.segments.forEach(S => { S.cards = S.cards.filter(x => x.id !== c.id); }));
+                          return d;
+                        });
+                      })}
+                      onMobilePreview={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
+                      onDesktopPreview={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
+                      onNotes={() => setNotesCardId(c.id)}
+                      onOpen={() => openInBrowser(c.html)}
+                      onCopy={() => copyHtml(c)}
+                      onSubjectChange={(v) => updateCardById(c.id, { subject: v })}
+                      onWidthChange={(v) => updateCardById(c.id, { width: v })}
+                      onHeightChange={(v) => updateCardById(c.id, { height: v })}
+                      copied={copiedCardId === c.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          ) : !seg ? (
             <EmptyState icon={Layers} title="No segment selected" hint="Pick a segment from the sidebar." />
           ) : filteredCards.length === 0 ? (
             <EmptyState
@@ -556,133 +599,27 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
           ) : (
             <div className="flex flex-wrap gap-5">
               {filteredCards.map((c) => (
-                <article
+                <CardArticle
                   key={c.id}
-                  className="group rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden"
-                  style={{ width: c.width, maxWidth: "100%" }}
-                >
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-2 h-2 rounded-full bg-primary/70 shrink-0" />
-                      <h3 className="text-lg font-semibold truncate tracking-tight">{c.name}</h3>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="p-1 text-muted-foreground hover:text-foreground">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => renameCard(c.id)}>
-                          <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => delCard(c.id)} className="text-destructive">
-                          <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-
-                  <div className="relative bg-muted/30 overflow-hidden" style={{ height: c.height }}>
-                    {c.html ? (
-                      <iframe
-                        srcDoc={c.html}
-                        className="w-full h-full border-0 bg-white"
-                        sandbox=""
-                        title={c.name}
-                      />
-                    ) : (
-                      <div className="h-full grid place-items-center text-xs text-muted-foreground">
-                        Empty — click Edit to add HTML
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-2 flex-wrap">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-8"
-                      onClick={() => setEditor({ cardId: c.id, html: c.html, name: c.name })}
-                    >
-                      <Code2 className="w-3.5 h-3.5 mr-1" /> Edit
-                    </Button>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2"
-                        title="Mobile preview"
-                        onClick={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
-                      >
-                        <Smartphone className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2"
-                        title="Desktop preview"
-                        onClick={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
-                      >
-                        <Monitor className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 relative"
-                        title="Notes"
-                        onClick={() => setNotesCardId(c.id)}
-                      >
-                        <StickyNote className="w-3.5 h-3.5" />
-                        {c.notes.length > 0 && (
-                          <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] leading-none rounded-full w-4 h-4 grid place-items-center font-semibold">
-                            {c.notes.length}
-                          </span>
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2"
-                        title="Open in new tab"
-                        onClick={() => openInBrowser(c.html)}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="px-4 pb-3 space-y-2 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-3">
-                      <span className="shrink-0 w-12">Width</span>
-                      <Slider
-                        value={[c.width]}
-                        min={280}
-                        max={780}
-                        step={10}
-                        onValueChange={(v) => updateCard(c.id, { width: v[0] })}
-                        className="flex-1"
-                      />
-                      <span className="tabular-nums w-12 text-right">{c.width}px</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="shrink-0 w-12">Height</span>
-                      <Slider
-                        value={[c.height]}
-                        min={160}
-                        max={720}
-                        step={10}
-                        onValueChange={(v) => updateCard(c.id, { height: v[0] })}
-                        className="flex-1"
-                      />
-                      <span className="tabular-nums w-12 text-right">{c.height}px</span>
-                    </div>
-                  </div>
-                </article>
+                  card={c}
+                  onEdit={() => setEditor({ cardId: c.id, html: c.html, name: c.name })}
+                  onRename={() => renameCard(c.id)}
+                  onDelete={() => delCard(c.id)}
+                  onMobilePreview={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
+                  onDesktopPreview={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
+                  onNotes={() => setNotesCardId(c.id)}
+                  onOpen={() => openInBrowser(c.html)}
+                  onCopy={() => copyHtml(c)}
+                  onSubjectChange={(v) => updateCard(c.id, { subject: v })}
+                  onWidthChange={(v) => updateCard(c.id, { width: v })}
+                  onHeightChange={(v) => updateCard(c.id, { height: v })}
+                  copied={copiedCardId === c.id}
+                />
               ))}
             </div>
           )}
         </div>
+
       </main>
 
       {/* Editor */}

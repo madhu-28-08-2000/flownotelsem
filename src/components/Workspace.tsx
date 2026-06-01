@@ -247,6 +247,18 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
     });
   };
 
+  // Update any card across the whole tree (used by intro-only view)
+  const updateCardById = (cardId: string, patch: Partial<Card>) => {
+    update((d) => {
+      d.forEach(L => L.segments.forEach(S => {
+        S.cards = S.cards.map(c => (c.id === cardId ? { ...c, ...patch } : c));
+      }));
+      return d;
+    });
+  };
+
+
+
   const renameCard = (cardId: string) => {
     const cur = seg?.cards.find((c) => c.id === cardId);
     askPrompt({

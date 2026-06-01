@@ -3,7 +3,7 @@ import {
   Plus, Pencil, Trash2, Save, X, Code2, ExternalLink,
   Languages, Layers, FileCode, Search, MoreHorizontal,
   Smartphone, Monitor, GitCompare, Upload, Check, StickyNote, Menu,
-  Share2,
+  Share2, Copy, Eye, EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import flownoteLogo from "@/assets/flownote-logo.svg";
 
 type Note = { id: string; text: string; createdAt: number };
-type Card = { id: string; name: string; html: string; width: number; height: number; notes: Note[] };
+type Card = { id: string; name: string; subject?: string; html: string; width: number; height: number; notes: Note[] };
 type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
@@ -56,6 +56,8 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
   const [dragOver, setDragOver] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [introOnly, setIntroOnly] = useState(false);
+  const [copiedCardId, setCopiedCardId] = useState<string | null>(null);
   const loaded = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -245,6 +247,18 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
     });
   };
 
+  // Update any card across the whole tree (used by intro-only view)
+  const updateCardById = (cardId: string, patch: Partial<Card>) => {
+    update((d) => {
+      d.forEach(L => L.segments.forEach(S => {
+        S.cards = S.cards.map(c => (c.id === cardId ? { ...c, ...patch } : c));
+      }));
+      return d;
+    });
+  };
+
+
+
   const renameCard = (cardId: string) => {
     const cur = seg?.cards.find((c) => c.id === cardId);
     askPrompt({
@@ -295,6 +309,27 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
       seg?.cards.filter((c) => c.name.toLowerCase().includes(search.toLowerCase())) ?? [],
     [seg, search]
   );
+
+  // Intro snippets across all segments of the current language
+  const introCards = useMemo(() => {
+    if (!lang) return [];
+    const out: { seg: Segment; card: Card }[] = [];
+    lang.segments.forEach(s => s.cards.forEach(c => {
+      if (c.name.toLowerCase().includes("intro")) out.push({ seg: s, card: c });
+    }));
+    return out;
+  }, [lang]);
+
+  const copyHtml = async (card: Card) => {
+    try {
+      await navigator.clipboard.writeText(card.html ?? "");
+      setCopiedCardId(card.id);
+      setTimeout(() => setCopiedCardId((id) => (id === card.id ? null : id)), 1200);
+    } catch {
+      window.prompt("Copy HTML:", card.html ?? "");
+    }
+  };
+
 
   const totalSnippets = langs.reduce(
     (acc, l) => acc + l.segments.reduce((a, s) => a + s.cards.length, 0),
@@ -435,6 +470,16 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
                 />
               </div>
               <Button
+                variant={introOnly ? "default" : "outline"}
+                size="sm"
+                className="h-9"
+                onClick={() => setIntroOnly((v) => !v)}
+                title="Show only intro snippets across all segments"
+              >
+                {introOnly ? <EyeOff className="w-4 h-4 sm:mr-1" /> : <Eye className="w-4 h-4 sm:mr-1" />}
+                <span className="hidden sm:inline">{introOnly ? "Show all" : "Show only intros"}</span>
+              </Button>
+              <Button
                 variant="outline"
                 size="sm"
                 className="h-9"
@@ -442,7 +487,7 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
               >
                 <GitCompare className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">Compare</span>
               </Button>
-              <Button onClick={addCard} disabled={!seg} size="sm" className="h-9">
+              <Button onClick={addCard} disabled={!seg || introOnly} size="sm" className="h-9">
                 <Plus className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">New snippet</span>
               </Button>
             </div>
@@ -450,13 +495,16 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
 
           {lang && (
             <div className="flex items-center gap-1 overflow-x-auto -mb-px">
-              {lang.segments.map((s) => (
-                <div key={s.id} className="group relative flex items-center">
+              {lang.segments.map((s) => {
+                const hasIntro = s.cards.some((c) => c.name.toLowerCase().includes("intro"));
+                const dim = introOnly && !hasIntro;
+                return (
+                <div key={s.id} className={cn("group relative flex items-center", dim && "opacity-40")}>
                   <button
                     onClick={() => setActiveSeg(s.id)}
                     className={cn(
                       "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2",
-                      activeSeg === s.id
+                      activeSeg === s.id && !introOnly
                         ? "border-primary text-primary"
                         : "border-transparent text-muted-foreground hover:text-foreground"
                     )}
@@ -464,7 +512,7 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
                     {s.name}
                     <span className={cn(
                       "text-xs rounded-full px-1.5 py-0.5 tabular-nums",
-                      activeSeg === s.id ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                      activeSeg === s.id && !introOnly ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
                     )}>{s.cards.length}</span>
                   </button>
                   <DropdownMenu>
@@ -483,7 +531,8 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              ))}
+                );
+              })}
               <button
                 onClick={addSeg}
                 className="ml-1 mb-1 p-2 text-muted-foreground hover:text-foreground rounded-md hover:bg-muted transition-colors"
@@ -496,7 +545,50 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
         </header>
 
         <div className="flex-1 overflow-auto p-3 sm:p-6 bg-background">
-          {!seg ? (
+          {introOnly ? (
+            introCards.length === 0 ? (
+              <EmptyState
+                icon={FileCode}
+                title="No intro snippets"
+                hint='Name a snippet with "intro" to make it show up here.'
+              />
+            ) : (
+              <div className="space-y-6">
+                <div className="text-xs text-muted-foreground">
+                  Showing {introCards.length} intro snippet{introCards.length === 1 ? "" : "s"} across all segments. Other snippets are hidden.
+                </div>
+                <div className="flex flex-wrap gap-5">
+                  {introCards.map(({ seg: parentSeg, card: c }) => (
+                    <CardArticle
+                      key={c.id}
+                      card={c}
+                      contextLabel={parentSeg.name}
+                      onEdit={() => setEditor({ cardId: c.id, html: c.html, name: c.name })}
+                      onRename={() => {
+                        const patch = (name: string) => updateCardById(c.id, { name });
+                        askPrompt({ title: "Rename card", label: "Card name", initial: c.name, onConfirm: patch });
+                      }}
+                      onDelete={() => askConfirm("Delete this card?", () => {
+                        update((d) => {
+                          d.forEach(L => L.segments.forEach(S => { S.cards = S.cards.filter(x => x.id !== c.id); }));
+                          return d;
+                        });
+                      })}
+                      onMobilePreview={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
+                      onDesktopPreview={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
+                      onNotes={() => setNotesCardId(c.id)}
+                      onOpen={() => openInBrowser(c.html)}
+                      onCopy={() => copyHtml(c)}
+                      onSubjectChange={(v) => updateCardById(c.id, { subject: v })}
+                      onWidthChange={(v) => updateCardById(c.id, { width: v })}
+                      onHeightChange={(v) => updateCardById(c.id, { height: v })}
+                      copied={copiedCardId === c.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          ) : !seg ? (
             <EmptyState icon={Layers} title="No segment selected" hint="Pick a segment from the sidebar." />
           ) : filteredCards.length === 0 ? (
             <EmptyState
@@ -507,133 +599,27 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
           ) : (
             <div className="flex flex-wrap gap-5">
               {filteredCards.map((c) => (
-                <article
+                <CardArticle
                   key={c.id}
-                  className="group rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden"
-                  style={{ width: c.width, maxWidth: "100%" }}
-                >
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-2 h-2 rounded-full bg-primary/70 shrink-0" />
-                      <h3 className="text-lg font-semibold truncate tracking-tight">{c.name}</h3>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="p-1 text-muted-foreground hover:text-foreground">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => renameCard(c.id)}>
-                          <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => delCard(c.id)} className="text-destructive">
-                          <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-
-                  <div className="relative bg-muted/30 overflow-hidden" style={{ height: c.height }}>
-                    {c.html ? (
-                      <iframe
-                        srcDoc={c.html}
-                        className="w-full h-full border-0 bg-white"
-                        sandbox=""
-                        title={c.name}
-                      />
-                    ) : (
-                      <div className="h-full grid place-items-center text-xs text-muted-foreground">
-                        Empty — click Edit to add HTML
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-2 flex-wrap">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-8"
-                      onClick={() => setEditor({ cardId: c.id, html: c.html, name: c.name })}
-                    >
-                      <Code2 className="w-3.5 h-3.5 mr-1" /> Edit
-                    </Button>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2"
-                        title="Mobile preview"
-                        onClick={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
-                      >
-                        <Smartphone className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2"
-                        title="Desktop preview"
-                        onClick={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
-                      >
-                        <Monitor className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 relative"
-                        title="Notes"
-                        onClick={() => setNotesCardId(c.id)}
-                      >
-                        <StickyNote className="w-3.5 h-3.5" />
-                        {c.notes.length > 0 && (
-                          <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] leading-none rounded-full w-4 h-4 grid place-items-center font-semibold">
-                            {c.notes.length}
-                          </span>
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2"
-                        title="Open in new tab"
-                        onClick={() => openInBrowser(c.html)}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="px-4 pb-3 space-y-2 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-3">
-                      <span className="shrink-0 w-12">Width</span>
-                      <Slider
-                        value={[c.width]}
-                        min={280}
-                        max={780}
-                        step={10}
-                        onValueChange={(v) => updateCard(c.id, { width: v[0] })}
-                        className="flex-1"
-                      />
-                      <span className="tabular-nums w-12 text-right">{c.width}px</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="shrink-0 w-12">Height</span>
-                      <Slider
-                        value={[c.height]}
-                        min={160}
-                        max={720}
-                        step={10}
-                        onValueChange={(v) => updateCard(c.id, { height: v[0] })}
-                        className="flex-1"
-                      />
-                      <span className="tabular-nums w-12 text-right">{c.height}px</span>
-                    </div>
-                  </div>
-                </article>
+                  card={c}
+                  onEdit={() => setEditor({ cardId: c.id, html: c.html, name: c.name })}
+                  onRename={() => renameCard(c.id)}
+                  onDelete={() => delCard(c.id)}
+                  onMobilePreview={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
+                  onDesktopPreview={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
+                  onNotes={() => setNotesCardId(c.id)}
+                  onOpen={() => openInBrowser(c.html)}
+                  onCopy={() => copyHtml(c)}
+                  onSubjectChange={(v) => updateCard(c.id, { subject: v })}
+                  onWidthChange={(v) => updateCard(c.id, { width: v })}
+                  onHeightChange={(v) => updateCard(c.id, { height: v })}
+                  copied={copiedCardId === c.id}
+                />
               ))}
             </div>
           )}
         </div>
+
       </main>
 
       {/* Editor */}
@@ -906,6 +892,149 @@ function EmptyState({
     </div>
   );
 }
+
+type CardArticleProps = {
+  card: Card;
+  contextLabel?: string;
+  copied: boolean;
+  onEdit: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  onMobilePreview: () => void;
+  onDesktopPreview: () => void;
+  onNotes: () => void;
+  onOpen: () => void;
+  onCopy: () => void;
+  onSubjectChange: (v: string) => void;
+  onWidthChange: (v: number) => void;
+  onHeightChange: (v: number) => void;
+};
+
+function CardArticle({
+  card: c, contextLabel, copied,
+  onEdit, onRename, onDelete,
+  onMobilePreview, onDesktopPreview, onNotes, onOpen, onCopy,
+  onSubjectChange, onWidthChange, onHeightChange,
+}: CardArticleProps) {
+  return (
+    <article
+      className="group rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden"
+      style={{ width: c.width, maxWidth: "100%" }}
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-2 h-2 rounded-full bg-primary/70 shrink-0" />
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold truncate tracking-tight">{c.name}</h3>
+            {contextLabel && (
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground truncate">{contextLabel}</div>
+            )}
+          </div>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="p-1 text-muted-foreground hover:text-foreground">
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onRename}>
+              <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onDelete} className="text-destructive">
+              <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="px-4 pt-3">
+        <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Subject line</label>
+        <Input
+          value={c.subject ?? ""}
+          onChange={(e) => onSubjectChange(e.target.value)}
+          placeholder="e.g. Welcome to our newsletter ✨"
+          className="mt-1 h-8 text-sm"
+        />
+      </div>
+
+      <div className="relative bg-muted/30 overflow-hidden mt-3" style={{ height: c.height }}>
+        {c.html ? (
+          <iframe
+            srcDoc={c.html}
+            className="w-full h-full border-0 bg-white"
+            sandbox=""
+            title={c.name}
+          />
+        ) : (
+          <div className="h-full grid place-items-center text-xs text-muted-foreground">
+            Empty — click Edit to add HTML
+          </div>
+        )}
+      </div>
+
+      <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <Button variant="secondary" size="sm" className="h-8" onClick={onEdit}>
+            <Code2 className="w-3.5 h-3.5 mr-1" /> Edit
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={onCopy}
+            title="Copy HTML to clipboard"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" className="h-8 px-2" title="Mobile preview" onClick={onMobilePreview}>
+            <Smartphone className="w-3.5 h-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 px-2" title="Desktop preview" onClick={onDesktopPreview}>
+            <Monitor className="w-3.5 h-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 px-2 relative" title="Notes" onClick={onNotes}>
+            <StickyNote className="w-3.5 h-3.5" />
+            {c.notes.length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] leading-none rounded-full w-4 h-4 grid place-items-center font-semibold">
+                {c.notes.length}
+              </span>
+            )}
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 px-2" title="Open in new tab" onClick={onOpen}>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="px-4 pb-3 space-y-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-3">
+          <span className="shrink-0 w-12">Width</span>
+          <Slider
+            value={[c.width]} min={280} max={780} step={10}
+            onValueChange={(v) => onWidthChange(v[0])}
+            className="flex-1"
+          />
+          <span className="tabular-nums w-12 text-right">{c.width}px</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="shrink-0 w-12">Height</span>
+          <Slider
+            value={[c.height]} min={160} max={720} step={10}
+            onValueChange={(v) => onHeightChange(v[0])}
+            className="flex-1"
+          />
+          <span className="tabular-nums w-12 text-right">{c.height}px</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+
 
 function PromptDialog({
   state, onClose,

@@ -3,7 +3,7 @@ import {
   Plus, Pencil, Trash2, Save, X, Code2, ExternalLink,
   Languages, Layers, FileCode, Search, MoreHorizontal,
   Smartphone, Monitor, GitCompare, Upload, Check, StickyNote, Menu,
-  Share2,
+  Share2, Copy, Eye, EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

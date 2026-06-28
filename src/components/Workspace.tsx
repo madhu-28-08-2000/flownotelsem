@@ -1016,6 +1016,72 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Trash */}
+      <Dialog open={trashOpen} onOpenChange={setTrashOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="w-4 h-4" /> Trash
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            Deleted items are kept for 30 days, then removed automatically.
+          </p>
+          <div className="flex-1 overflow-auto -mx-6 px-6 space-y-2">
+            {trash.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">Trash is empty</div>
+            ) : (
+              trash.map((t) => {
+                const ageDays = Math.floor((Date.now() - t.deletedAt) / (24 * 60 * 60 * 1000));
+                const daysLeft = Math.max(0, 30 - ageDays);
+                const name =
+                  t.kind === "language" ? t.data.name :
+                  t.kind === "segment" ? t.data.name :
+                  t.data.name;
+                const where =
+                  t.kind === "language" ? `${t.data.segments.length} segment(s)` :
+                  t.kind === "segment" ? `in ${t.langName} · ${t.data.cards.length} card(s)` :
+                  `in ${t.langName} › ${t.segName}`;
+                return (
+                  <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-md border border-border bg-card">
+                    <div className="shrink-0 w-9 h-9 rounded-md bg-muted grid place-items-center">
+                      {t.kind === "language" ? <Languages className="w-4 h-4 text-muted-foreground" /> :
+                       t.kind === "segment" ? <Layers className="w-4 h-4 text-muted-foreground" /> :
+                       <FileCode className="w-4 h-4 text-muted-foreground" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-2">{t.kind}</span>
+                        {name || <span className="italic text-muted-foreground">untitled</span>}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{where}</div>
+                      <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Clock className="w-3 h-3" />
+                        deleted {new Date(t.deletedAt).toLocaleString()} · {daysLeft} day{daysLeft === 1 ? "" : "s"} left
+                      </div>
+                    </div>
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => restoreFromTrash(t.id)}>
+                      <RotateCcw className="w-3.5 h-3.5 mr-1" /> Restore
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-8 text-destructive" onClick={() => purgeFromTrash(t.id)}>
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <DialogFooter>
+            {trash.length > 0 && (
+              <Button variant="ghost" className="text-destructive mr-auto" onClick={emptyTrash}>
+                Empty trash
+              </Button>
+            )}
+            <Button onClick={() => setTrashOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

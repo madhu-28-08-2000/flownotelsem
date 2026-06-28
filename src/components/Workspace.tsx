@@ -278,7 +278,13 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
 
   const delSeg = (id: string) => {
     if (!lang) return;
-    askConfirm("Delete this segment?", () => {
+    askConfirm("Move this segment to Trash? (kept for 30 days)", () => {
+      const victim = lang.segments.find((s) => s.id === id);
+      if (victim) sendToTrash({
+        id: uid(), kind: "segment", deletedAt: Date.now(),
+        langId: lang.id, langName: lang.name,
+        data: structuredClone(victim),
+      });
       update((d) => {
         const L = d.find((l) => l.id === lang.id)!;
         L.segments = L.segments.filter((s) => s.id !== id);

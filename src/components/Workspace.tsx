@@ -3,7 +3,7 @@ import {
   Plus, Pencil, Trash2, Save, X, Code2, ExternalLink,
   Languages, Layers, FileCode, Search, MoreHorizontal,
   Smartphone, Monitor, GitCompare, Upload, Check, StickyNote, Menu,
-  Share2, Copy, Eye, EyeOff,
+  Share2, Copy, Eye, EyeOff, RotateCcw, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,13 @@ type Card = { id: string; name: string; subject?: string; html: string; width: n
 type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
+type TrashItem =
+  | { id: string; kind: "language"; deletedAt: number; data: Language }
+  | { id: string; kind: "segment"; deletedAt: number; langId: string; langName: string; data: Segment }
+  | { id: string; kind: "card"; deletedAt: number; langId: string; langName: string; segId: string; segName: string; data: Card };
+
+const TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const seed = (): Language[] => [
@@ -40,6 +47,8 @@ type DevicePreview = { html: string; name: string; device: "mobile" | "desktop" 
 
 export default function Workspace({ workspaceId, workspaceName }: { workspaceId: string; workspaceName: string }) {
   const STORAGE_KEY = `html-snippet-manager:${workspaceId}`;
+  const TRASH_STORAGE_KEY = `html-snippet-manager-trash:${workspaceId}`;
+  const TRASH_CLIENT_ID = `${workspaceId}__trash`;
   const [langs, setLangs] = useState<Language[]>([]);
   const [activeLang, setActiveLang] = useState<string>("");
   const [activeSeg, setActiveSeg] = useState<string>("");
@@ -58,8 +67,12 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
   const [shareCopied, setShareCopied] = useState(false);
   const [introOnly, setIntroOnly] = useState(false);
   const [copiedCardId, setCopiedCardId] = useState<string | null>(null);
+  const [trash, setTrash] = useState<TrashItem[]>([]);
+  const [trashOpen, setTrashOpen] = useState(false);
   const loaded = useRef(false);
+  const trashLoaded = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trashSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initial load: cloud → local cache → seed. Re-runs when workspaceId changes.
   useEffect(() => {
@@ -112,6 +125,55 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
     }, 600);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [langs, workspaceId]);
+
+  // Load trash (separate workspaces row keyed with __trash suffix).
+  useEffect(() => {
+    trashLoaded.current = false;
+    setTrash([]);
+    (async () => {
+      let items: TrashItem[] | null = null;
+      try {
+        const { data: row } = await supabase
+          .from("workspaces")
+          .select("data")
+          .eq("client_id", TRASH_CLIENT_ID)
+          .maybeSingle();
+        if (row?.data && Array.isArray(row.data)) items = row.data as unknown as TrashItem[];
+      } catch (e) {
+        console.warn("Trash cloud load failed:", e);
+      }
+      if (!items) {
+        try {
+          const raw = localStorage.getItem(TRASH_STORAGE_KEY);
+          if (raw) items = JSON.parse(raw) as TrashItem[];
+        } catch { /* ignore */ }
+      }
+      const now = Date.now();
+      const fresh = (items ?? []).filter(i => now - i.deletedAt < TRASH_TTL_MS);
+      setTrash(fresh);
+      trashLoaded.current = true;
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
+
+  // Persist trash
+  useEffect(() => {
+    if (!trashLoaded.current) return;
+    try { localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(trash)); } catch { /* ignore */ }
+    if (trashSaveTimer.current) clearTimeout(trashSaveTimer.current);
+    trashSaveTimer.current = setTimeout(async () => {
+      try {
+        await supabase
+          .from("workspaces")
+          .upsert({ client_id: TRASH_CLIENT_ID, data: trash as unknown as never, updated_at: new Date().toISOString() });
+      } catch (e) {
+        console.warn("Trash cloud save failed:", e);
+      }
+    }, 600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trash, workspaceId]);
+
+  const sendToTrash = (item: TrashItem) => setTrash(t => [item, ...t]);
 
   const copyShareLink = async () => {
     const url = `${window.location.origin}/w/${workspaceId}`;
@@ -167,7 +229,12 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
   };
 
   const delLang = (id: string) =>
-    askConfirm("Delete this language and all its segments?", () => {
+    askConfirm("Move this language to Trash? (kept for 30 days)", () => {
+      const victim = langs.find((l) => l.id === id);
+      if (victim) sendToTrash({
+        id: uid(), kind: "language", deletedAt: Date.now(),
+        data: structuredClone(victim),
+      });
       update((d) => d.filter((l) => l.id !== id));
       if (activeLang === id) {
         const next = langs.find((l) => l.id !== id);
@@ -211,7 +278,13 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
 
   const delSeg = (id: string) => {
     if (!lang) return;
-    askConfirm("Delete this segment?", () => {
+    askConfirm("Move this segment to Trash? (kept for 30 days)", () => {
+      const victim = lang.segments.find((s) => s.id === id);
+      if (victim) sendToTrash({
+        id: uid(), kind: "segment", deletedAt: Date.now(),
+        langId: lang.id, langName: lang.name,
+        data: structuredClone(victim),
+      });
       update((d) => {
         const L = d.find((l) => l.id === lang.id)!;
         L.segments = L.segments.filter((s) => s.id !== id);
@@ -270,8 +343,15 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
   };
 
   const delCard = (cardId: string) =>
-    askConfirm("Delete this card?", () => {
+    askConfirm("Move this card to Trash? (kept for 30 days)", () => {
       if (!lang || !seg) return;
+      const victim = seg.cards.find((c) => c.id === cardId);
+      if (victim) sendToTrash({
+        id: uid(), kind: "card", deletedAt: Date.now(),
+        langId: lang.id, langName: lang.name,
+        segId: seg.id, segName: seg.name,
+        data: structuredClone(victim),
+      });
       update((d) => {
         const L = d.find((l) => l.id === lang.id)!;
         const S = L.segments.find((s) => s.id === seg.id)!;
@@ -279,6 +359,64 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
         return d;
       });
     });
+
+  // Also intercept intro-only delete which removes any card by id
+  const delCardAnywhere = (cardId: string) =>
+    askConfirm("Move this card to Trash? (kept for 30 days)", () => {
+      let found: { lang: Language; seg: Segment; card: Card } | null = null;
+      langs.forEach(L => L.segments.forEach(S => S.cards.forEach(c => {
+        if (c.id === cardId) found = { lang: L, seg: S, card: c };
+      })));
+      const f = found as { lang: Language; seg: Segment; card: Card } | null;
+      if (f) sendToTrash({
+        id: uid(), kind: "card", deletedAt: Date.now(),
+        langId: f.lang.id, langName: f.lang.name,
+        segId: f.seg.id, segName: f.seg.name,
+        data: structuredClone(f.card),
+      });
+      update((d) => {
+        d.forEach(L => L.segments.forEach(S => { S.cards = S.cards.filter(x => x.id !== cardId); }));
+        return d;
+      });
+    });
+
+  // Restore from trash. If parent is missing, restore parents too.
+  const restoreFromTrash = (trashId: string) => {
+    const item = trash.find(t => t.id === trashId);
+    if (!item) return;
+    update((d) => {
+      if (item.kind === "language") {
+        d.push(structuredClone(item.data));
+      } else if (item.kind === "segment") {
+        let L = d.find(l => l.id === item.langId);
+        if (!L) {
+          L = { id: item.langId, name: item.langName, segments: [] };
+          d.push(L);
+        }
+        L.segments.push(structuredClone(item.data));
+      } else {
+        let L = d.find(l => l.id === item.langId);
+        if (!L) {
+          L = { id: item.langId, name: item.langName, segments: [] };
+          d.push(L);
+        }
+        let S = L.segments.find(s => s.id === item.segId);
+        if (!S) {
+          S = { id: item.segId, name: item.segName, cards: [] };
+          L.segments.push(S);
+        }
+        S.cards.push(structuredClone(item.data));
+      }
+      return d;
+    });
+    setTrash(t => t.filter(x => x.id !== trashId));
+  };
+
+  const purgeFromTrash = (trashId: string) =>
+    setTrash(t => t.filter(x => x.id !== trashId));
+
+  const emptyTrash = () =>
+    askConfirm("Permanently empty the trash? This cannot be undone.", () => setTrash([]));
 
   const openInBrowser = (html: string) => {
     const w = window.open("", "_blank");
@@ -354,14 +492,24 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
           </div>
           <div className="mt-0.5 flex items-center justify-between gap-2">
             <span className="text-[11px] text-muted-foreground">{totalSnippets} snippets</span>
-            <button
-              onClick={copyShareLink}
-              className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-              title="Copy shareable workspace link"
-            >
-              {shareCopied ? <Check className="w-3 h-3" /> : <Share2 className="w-3 h-3" />}
-              {shareCopied ? "Copied" : "Share"}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setTrashOpen(true)}
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                title="View trash (kept 30 days)"
+              >
+                <Trash2 className="w-3 h-3" />
+                Trash{trash.length > 0 && ` (${trash.length})`}
+              </button>
+              <button
+                onClick={copyShareLink}
+                className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                title="Copy shareable workspace link"
+              >
+                {shareCopied ? <Check className="w-3 h-3" /> : <Share2 className="w-3 h-3" />}
+                {shareCopied ? "Copied" : "Share"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -568,12 +716,7 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
                         const patch = (name: string) => updateCardById(c.id, { name });
                         askPrompt({ title: "Rename card", label: "Card name", initial: c.name, onConfirm: patch });
                       }}
-                      onDelete={() => askConfirm("Delete this card?", () => {
-                        update((d) => {
-                          d.forEach(L => L.segments.forEach(S => { S.cards = S.cards.filter(x => x.id !== c.id); }));
-                          return d;
-                        });
-                      })}
+                      onDelete={() => delCardAnywhere(c.id)}
                       onMobilePreview={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
                       onDesktopPreview={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
                       onNotes={() => setNotesCardId(c.id)}
@@ -870,6 +1013,72 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
             >
               Delete
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Trash */}
+      <Dialog open={trashOpen} onOpenChange={setTrashOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="w-4 h-4" /> Trash
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            Deleted items are kept for 30 days, then removed automatically.
+          </p>
+          <div className="flex-1 overflow-auto -mx-6 px-6 space-y-2">
+            {trash.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">Trash is empty</div>
+            ) : (
+              trash.map((t) => {
+                const ageDays = Math.floor((Date.now() - t.deletedAt) / (24 * 60 * 60 * 1000));
+                const daysLeft = Math.max(0, 30 - ageDays);
+                const name =
+                  t.kind === "language" ? t.data.name :
+                  t.kind === "segment" ? t.data.name :
+                  t.data.name;
+                const where =
+                  t.kind === "language" ? `${t.data.segments.length} segment(s)` :
+                  t.kind === "segment" ? `in ${t.langName} · ${t.data.cards.length} card(s)` :
+                  `in ${t.langName} › ${t.segName}`;
+                return (
+                  <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-md border border-border bg-card">
+                    <div className="shrink-0 w-9 h-9 rounded-md bg-muted grid place-items-center">
+                      {t.kind === "language" ? <Languages className="w-4 h-4 text-muted-foreground" /> :
+                       t.kind === "segment" ? <Layers className="w-4 h-4 text-muted-foreground" /> :
+                       <FileCode className="w-4 h-4 text-muted-foreground" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-2">{t.kind}</span>
+                        {name || <span className="italic text-muted-foreground">untitled</span>}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{where}</div>
+                      <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Clock className="w-3 h-3" />
+                        deleted {new Date(t.deletedAt).toLocaleString()} · {daysLeft} day{daysLeft === 1 ? "" : "s"} left
+                      </div>
+                    </div>
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => restoreFromTrash(t.id)}>
+                      <RotateCcw className="w-3.5 h-3.5 mr-1" /> Restore
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-8 text-destructive" onClick={() => purgeFromTrash(t.id)}>
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <DialogFooter>
+            {trash.length > 0 && (
+              <Button variant="ghost" className="text-destructive mr-auto" onClick={emptyTrash}>
+                Empty trash
+              </Button>
+            )}
+            <Button onClick={() => setTrashOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -126,6 +126,55 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [langs, workspaceId]);
 
+  // Load trash (separate workspaces row keyed with __trash suffix).
+  useEffect(() => {
+    trashLoaded.current = false;
+    setTrash([]);
+    (async () => {
+      let items: TrashItem[] | null = null;
+      try {
+        const { data: row } = await supabase
+          .from("workspaces")
+          .select("data")
+          .eq("client_id", TRASH_CLIENT_ID)
+          .maybeSingle();
+        if (row?.data && Array.isArray(row.data)) items = row.data as unknown as TrashItem[];
+      } catch (e) {
+        console.warn("Trash cloud load failed:", e);
+      }
+      if (!items) {
+        try {
+          const raw = localStorage.getItem(TRASH_STORAGE_KEY);
+          if (raw) items = JSON.parse(raw) as TrashItem[];
+        } catch { /* ignore */ }
+      }
+      const now = Date.now();
+      const fresh = (items ?? []).filter(i => now - i.deletedAt < TRASH_TTL_MS);
+      setTrash(fresh);
+      trashLoaded.current = true;
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
+
+  // Persist trash
+  useEffect(() => {
+    if (!trashLoaded.current) return;
+    try { localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(trash)); } catch { /* ignore */ }
+    if (trashSaveTimer.current) clearTimeout(trashSaveTimer.current);
+    trashSaveTimer.current = setTimeout(async () => {
+      try {
+        await supabase
+          .from("workspaces")
+          .upsert({ client_id: TRASH_CLIENT_ID, data: trash as unknown as never, updated_at: new Date().toISOString() });
+      } catch (e) {
+        console.warn("Trash cloud save failed:", e);
+      }
+    }, 600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trash, workspaceId]);
+
+  const sendToTrash = (item: TrashItem) => setTrash(t => [item, ...t]);
+
   const copyShareLink = async () => {
     const url = `${window.location.origin}/w/${workspaceId}`;
     try {

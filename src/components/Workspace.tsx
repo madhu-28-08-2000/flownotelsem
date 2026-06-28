@@ -23,6 +23,13 @@ type Card = { id: string; name: string; subject?: string; html: string; width: n
 type Segment = { id: string; name: string; cards: Card[] };
 type Language = { id: string; name: string; segments: Segment[] };
 
+type TrashItem =
+  | { id: string; kind: "language"; deletedAt: number; data: Language }
+  | { id: string; kind: "segment"; deletedAt: number; langId: string; langName: string; data: Segment }
+  | { id: string; kind: "card"; deletedAt: number; langId: string; langName: string; segId: string; segName: string; data: Card };
+
+const TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const seed = (): Language[] => [

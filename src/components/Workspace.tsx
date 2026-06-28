@@ -492,14 +492,24 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
           </div>
           <div className="mt-0.5 flex items-center justify-between gap-2">
             <span className="text-[11px] text-muted-foreground">{totalSnippets} snippets</span>
-            <button
-              onClick={copyShareLink}
-              className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-              title="Copy shareable workspace link"
-            >
-              {shareCopied ? <Check className="w-3 h-3" /> : <Share2 className="w-3 h-3" />}
-              {shareCopied ? "Copied" : "Share"}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setTrashOpen(true)}
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                title="View trash (kept 30 days)"
+              >
+                <Trash2 className="w-3 h-3" />
+                Trash{trash.length > 0 && ` (${trash.length})`}
+              </button>
+              <button
+                onClick={copyShareLink}
+                className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                title="Copy shareable workspace link"
+              >
+                {shareCopied ? <Check className="w-3 h-3" /> : <Share2 className="w-3 h-3" />}
+                {shareCopied ? "Copied" : "Share"}
+              </button>
+            </div>
           </div>
         </div>
       </div>

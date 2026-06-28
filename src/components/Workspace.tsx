@@ -367,11 +367,12 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
       langs.forEach(L => L.segments.forEach(S => S.cards.forEach(c => {
         if (c.id === cardId) found = { lang: L, seg: S, card: c };
       })));
-      if (found) sendToTrash({
+      const f = found as { lang: Language; seg: Segment; card: Card } | null;
+      if (f) sendToTrash({
         id: uid(), kind: "card", deletedAt: Date.now(),
-        langId: found.lang.id, langName: found.lang.name,
-        segId: found.seg.id, segName: found.seg.name,
-        data: structuredClone(found.card),
+        langId: f.lang.id, langName: f.lang.name,
+        segId: f.seg.id, segName: f.seg.name,
+        data: structuredClone(f.card),
       });
       update((d) => {
         d.forEach(L => L.segments.forEach(S => { S.cards = S.cards.filter(x => x.id !== cardId); }));

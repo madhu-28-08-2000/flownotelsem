@@ -47,6 +47,8 @@ type DevicePreview = { html: string; name: string; device: "mobile" | "desktop" 
 
 export default function Workspace({ workspaceId, workspaceName }: { workspaceId: string; workspaceName: string }) {
   const STORAGE_KEY = `html-snippet-manager:${workspaceId}`;
+  const TRASH_STORAGE_KEY = `html-snippet-manager-trash:${workspaceId}`;
+  const TRASH_CLIENT_ID = `${workspaceId}__trash`;
   const [langs, setLangs] = useState<Language[]>([]);
   const [activeLang, setActiveLang] = useState<string>("");
   const [activeSeg, setActiveSeg] = useState<string>("");
@@ -65,8 +67,12 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
   const [shareCopied, setShareCopied] = useState(false);
   const [introOnly, setIntroOnly] = useState(false);
   const [copiedCardId, setCopiedCardId] = useState<string | null>(null);
+  const [trash, setTrash] = useState<TrashItem[]>([]);
+  const [trashOpen, setTrashOpen] = useState(false);
   const loaded = useRef(false);
+  const trashLoaded = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trashSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initial load: cloud → local cache → seed. Re-runs when workspaceId changes.
   useEffect(() => {

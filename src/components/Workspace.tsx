@@ -229,7 +229,12 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
   };
 
   const delLang = (id: string) =>
-    askConfirm("Delete this language and all its segments?", () => {
+    askConfirm("Move this language to Trash? (kept for 30 days)", () => {
+      const victim = langs.find((l) => l.id === id);
+      if (victim) sendToTrash({
+        id: uid(), kind: "language", deletedAt: Date.now(),
+        data: structuredClone(victim),
+      });
       update((d) => d.filter((l) => l.id !== id));
       if (activeLang === id) {
         const next = langs.find((l) => l.id !== id);

@@ -343,8 +343,15 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
   };
 
   const delCard = (cardId: string) =>
-    askConfirm("Delete this card?", () => {
+    askConfirm("Move this card to Trash? (kept for 30 days)", () => {
       if (!lang || !seg) return;
+      const victim = seg.cards.find((c) => c.id === cardId);
+      if (victim) sendToTrash({
+        id: uid(), kind: "card", deletedAt: Date.now(),
+        langId: lang.id, langName: lang.name,
+        segId: seg.id, segName: seg.name,
+        data: structuredClone(victim),
+      });
       update((d) => {
         const L = d.find((l) => l.id === lang.id)!;
         const S = L.segments.find((s) => s.id === seg.id)!;
@@ -352,6 +359,63 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
         return d;
       });
     });
+
+  // Also intercept intro-only delete which removes any card by id
+  const delCardAnywhere = (cardId: string) =>
+    askConfirm("Move this card to Trash? (kept for 30 days)", () => {
+      let found: { lang: Language; seg: Segment; card: Card } | null = null;
+      langs.forEach(L => L.segments.forEach(S => S.cards.forEach(c => {
+        if (c.id === cardId) found = { lang: L, seg: S, card: c };
+      })));
+      if (found) sendToTrash({
+        id: uid(), kind: "card", deletedAt: Date.now(),
+        langId: found.lang.id, langName: found.lang.name,
+        segId: found.seg.id, segName: found.seg.name,
+        data: structuredClone(found.card),
+      });
+      update((d) => {
+        d.forEach(L => L.segments.forEach(S => { S.cards = S.cards.filter(x => x.id !== cardId); }));
+        return d;
+      });
+    });
+
+  // Restore from trash. If parent is missing, restore parents too.
+  const restoreFromTrash = (trashId: string) => {
+    const item = trash.find(t => t.id === trashId);
+    if (!item) return;
+    update((d) => {
+      if (item.kind === "language") {
+        d.push(structuredClone(item.data));
+      } else if (item.kind === "segment") {
+        let L = d.find(l => l.id === item.langId);
+        if (!L) {
+          L = { id: item.langId, name: item.langName, segments: [] };
+          d.push(L);
+        }
+        L.segments.push(structuredClone(item.data));
+      } else {
+        let L = d.find(l => l.id === item.langId);
+        if (!L) {
+          L = { id: item.langId, name: item.langName, segments: [] };
+          d.push(L);
+        }
+        let S = L.segments.find(s => s.id === item.segId);
+        if (!S) {
+          S = { id: item.segId, name: item.segName, cards: [] };
+          L.segments.push(S);
+        }
+        S.cards.push(structuredClone(item.data));
+      }
+      return d;
+    });
+    setTrash(t => t.filter(x => x.id !== trashId));
+  };
+
+  const purgeFromTrash = (trashId: string) =>
+    setTrash(t => t.filter(x => x.id !== trashId));
+
+  const emptyTrash = () =>
+    askConfirm("Permanently empty the trash? This cannot be undone.", () => setTrash([]));
 
   const openInBrowser = (html: string) => {
     const w = window.open("", "_blank");

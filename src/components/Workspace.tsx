@@ -706,12 +706,7 @@ export default function Workspace({ workspaceId, workspaceName }: { workspaceId:
                         const patch = (name: string) => updateCardById(c.id, { name });
                         askPrompt({ title: "Rename card", label: "Card name", initial: c.name, onConfirm: patch });
                       }}
-                      onDelete={() => askConfirm("Delete this card?", () => {
-                        update((d) => {
-                          d.forEach(L => L.segments.forEach(S => { S.cards = S.cards.filter(x => x.id !== c.id); }));
-                          return d;
-                        });
-                      })}
+                      onDelete={() => delCardAnywhere(c.id)}
                       onMobilePreview={() => setDevicePreview({ html: c.html, name: c.name, device: "mobile" })}
                       onDesktopPreview={() => setDevicePreview({ html: c.html, name: c.name, device: "desktop" })}
                       onNotes={() => setNotesCardId(c.id)}
